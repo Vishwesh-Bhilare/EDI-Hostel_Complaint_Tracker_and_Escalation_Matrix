@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Maintenance Queue</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-page">
+  <header class="topbar" id="topbar"></header>
+  <main class="app-main">
+    <div class="breadcrumb">Dashboard</div>
+    <div class="heading-row">
+      <div>
+        <p class="eyebrow">MAINTENANCE STAFF</p>
+        <h1>Assigned queue</h1>
+        <p class="muted">Complaints assigned to you, ordered by resolution deadline.</p>
+      </div>
+    </div>
+
+    <div class="dash-stats" id="statCards"></div>
+
+    <div class="toolbar">
+      <div class="filters">
+        <select id="fStatus"><option value="">All statuses</option><option>Assigned</option><option>Resolved</option><option>Closed</option></select>
+        <input type="text" id="fSearch" placeholder="Search description or complaint ID">
+      </div>
+    </div>
+
+    <div class="table-card">
+      <table class="hc-table">
+        <thead><tr><th>Complaint ID</th><th>Category</th><th>Severity</th><th>Block / Room</th><th>Status</th><th>Resolution due</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireRole(["maintenance_staff"]);
+    if (session) {
+      HCUI.renderTopbar(session);
+      function renderStats() {
+        const s = HC.ANALYTICS_SUMMARY(session);
+        document.getElementById("statCards").innerHTML = `
+          <div class="stat-card accent"><span>Assigned to you</span><strong>${s.total}</strong></div>
+          <div class="stat-card"><span>Open / in progress</span><strong>${s.open}</strong></div>
+          <div class="stat-card"><span>Escalated</span><strong>${s.escalated}</strong></div>
+          <div class="stat-card"><span>Resolved</span><strong>${s.resolved}</strong></div>`;
+      }
+      function renderRows() {
+        const filters = { status: document.getElementById("fStatus").value, q: document.getElementById("fSearch").value };
+        const list = HC.COMPLAINT_LIST(session, filters);
+        const body = document.getElementById("rows");
+        if (!list.length) { body.innerHTML = `<tr class="empty-row"><td colspan="6">Nothing assigned to you right now.</td></tr>`; return; }
+        body.innerHTML = list.map(c => {
+          const cd = HCUI.countdown(c.resolution_due);
+          const closedOut = ["Resolved", "Closed", "Withdrawn"].includes(c.status);
+          const due = closedOut ? "—" : `${cd.overdue ? "Overdue by " : "in "}${cd.label}`;
+          return `<tr data-id="${c.complaint_id}">
+            <td><strong>${c.complaint_id}</strong></td>
+            <td>${HCUI.esc(c.category)}</td>
+            <td><span class="sev-tag ${HCUI.severityBadgeClass(c.severity)}">${c.severity}</span></td>
+            <td>${c.hostel_block} · ${HCUI.esc(c.room_no)}</td>
+            <td><span class="badge ${HCUI.statusBadgeClass(c.status)}">${c.status}</span></td>
+            <td>${due}</td>
+          </tr>`;
+        }).join("");
+        body.querySelectorAll("tr[data-id]").forEach(row => {
+          row.addEventListener("click", () => window.location.href = "complaint-detail.html?id=" + encodeURIComponent(row.dataset.id));
+        });
+      }
+      [document.getElementById("fStatus")].forEach(el => el.addEventListener("change", renderRows));
+      document.getElementById("fSearch").addEventListener("input", renderRows);
+      renderStats(); renderRows();
+      setInterval(() => { renderStats(); renderRows(); }, 4000);
+    }
+  </script>
+</body>
+</html>

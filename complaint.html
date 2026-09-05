@@ -1,23 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HostelCare | Submit Complaint</title>
-  <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Submit Complaint</title>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body class="app-page">
-  <header class="topbar">
-    <a class="app-brand" href="complaint.html"><span class="brand-mark small">HC</span><span><strong>HostelCare</strong><small>Complaint Tracker</small></span></a>
-    <div class="user-area">
-      <button class="notification-btn" aria-label="Notifications">🔔<i></i></button>
-      <div class="user-avatar">RS</div>
-      <div class="user-meta"><strong>Resident</strong><small>Block B</small></div>
-      <button class="logout-btn" onclick="window.location.href='index.html'">Logout</button>
-    </div>
-  </header>
+  <header class="topbar" id="topbar"></header>
   <main class="app-main">
-    <div class="breadcrumb">Dashboard <span>›</span> New Complaint</div>
+    <div class="breadcrumb"><a href="resident-dashboard.html">Dashboard</a> <span>›</span> New Complaint</div>
     <div class="heading-row">
       <div>
         <p class="eyebrow">COMPLAINT MANAGEMENT</p>
@@ -54,8 +46,8 @@
           <input type="hidden" id="severity" value="Medium">
         </div>
         <div class="grid-2">
-          <div class="field"><label for="complaintBlock">Hostel Block <span>*</span></label><select id="complaintBlock" required><option>Block A</option><option selected>Block B</option><option>Block C</option><option>Block D</option></select></div>
-          <div class="field"><label for="roomNumber">Room Number <span>*</span></label><input id="roomNumber" type="text" value="B-204" required></div>
+          <div class="field"><label for="complaintBlock">Hostel Block <span>*</span></label><select id="complaintBlock" required><option>Block A</option><option>Block B</option><option>Block C</option><option>Block D</option></select></div>
+          <div class="field"><label for="roomNumber">Room Number <span>*</span></label><input id="roomNumber" type="text" required></div>
         </div>
         <div class="field">
           <div class="label-row"><label for="description">Description <span>*</span></label><small id="charCount">0 / 1000</small></div>
@@ -91,7 +83,7 @@
   </main>
   <div class="modal-backdrop" id="successModal" aria-hidden="true">
     <div class="success-modal">
-      <button class="modal-close" onclick="closeModal()" aria-label="Close">×</button>
+      <button class="modal-close" id="modalCloseBtn" aria-label="Close">×</button>
       <div class="success-icon">✓</div>
       <p class="eyebrow">SUBMISSION SUCCESSFUL</p>
       <h2>Complaint submitted</h2>
@@ -99,9 +91,81 @@
       <div class="complaint-id"><small>Complaint ID</small><strong id="generatedId">HC-2026-000001</strong></div>
       <div class="success-status"><span>●</span> Submitted</div>
       <p class="small-muted">You will receive notifications when the complaint is assigned, escalated or resolved.</p>
-      <button class="primary-btn wide" onclick="closeModal()">DONE</button>
+      <button class="primary-btn wide" id="viewComplaintBtn">VIEW COMPLAINT</button>
     </div>
   </div>
-  <script src="script.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireRole(["resident"]);
+    let newComplaintId = null;
+    if (session) {
+      HCUI.renderTopbar(session);
+      document.getElementById("complaintBlock").value = session.hostel_block || "Block A";
+      document.getElementById("roomNumber").value = session.room_no || "";
+
+      const POLICY_TEXT = {
+        Low: { response: "12 hours", resolution: "72 hours", chain: [["L1", "Maintenance Staff"], ["L2", "Warden"]] },
+        Medium: { response: "6 hours", resolution: "48 hours", chain: [["L1", "Warden"], ["L2", "Assistant / Deputy Warden"], ["L3", "Chief Warden"]] },
+        High: { response: "2 hours", resolution: "24 hours", chain: [["L1", "Warden"], ["L2", "Chief Warden"], ["L3", "Dean of Student Welfare"]] },
+        Critical: { response: "30 minutes", resolution: "6 hours", chain: [["L1", "Warden + Security"], ["L2", "Chief Warden"], ["L3", "Dean of Student Welfare"], ["L4", "Director / Principal"]] },
+      };
+      const timeline = document.getElementById("timeline");
+      function renderPolicy(sev) {
+        const p = POLICY_TEXT[sev];
+        document.getElementById("severityTitle").textContent = sev + " severity";
+        document.getElementById("responseSla").textContent = p.response;
+        document.getElementById("resolutionSla").textContent = p.resolution;
+        timeline.innerHTML = p.chain.map(c => `<div class="timeline-item"><strong>${c[0]} · ${c[1]}</strong><small>Next authority if the applicable transition is triggered.</small></div>`).join("");
+      }
+      document.querySelectorAll(".severity-card").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".severity-card").forEach(b => b.classList.remove("selected"));
+          btn.classList.add("selected");
+          document.getElementById("severity").value = btn.dataset.severity;
+          renderPolicy(btn.dataset.severity);
+        });
+      });
+      renderPolicy("Medium");
+
+      document.getElementById("description").addEventListener("input", function () {
+        document.getElementById("charCount").textContent = this.value.length + " / 1000";
+      });
+      document.getElementById("evidence").addEventListener("change", function () {
+        const f = this.files[0];
+        document.getElementById("fileName").textContent = f ? `Selected: ${f.name}` : "";
+      });
+
+      const form = document.getElementById("complaintForm");
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (!form.checkValidity()) { form.reportValidity(); return; }
+        const idKey = "idem_" + session.user_id + "_" + Date.now();
+        const evidence = document.getElementById("evidence").files[0];
+        const result = HC.COMPLAINT_CREATE(session, {
+          category: document.getElementById("category").value,
+          severity: document.getElementById("severity").value,
+          hostel_block: document.getElementById("complaintBlock").value,
+          description: document.getElementById("description").value,
+          evidence_name: evidence ? evidence.name : null,
+        }, idKey);
+        if (!result.ok) { HCUI.toast(result.message || "Could not submit complaint.", "error"); return; }
+        newComplaintId = result.complaint.complaint_id;
+        document.getElementById("generatedId").textContent = newComplaintId;
+        const modal = document.getElementById("successModal");
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+      });
+      function closeModal() {
+        const modal = document.getElementById("successModal");
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden", "true");
+      }
+      document.getElementById("modalCloseBtn").addEventListener("click", () => { closeModal(); window.location.href = "resident-dashboard.html"; });
+      document.getElementById("viewComplaintBtn").addEventListener("click", () => {
+        window.location.href = "complaint-detail.html?id=" + encodeURIComponent(newComplaintId);
+      });
+    }
+  </script>
 </body>
 </html>

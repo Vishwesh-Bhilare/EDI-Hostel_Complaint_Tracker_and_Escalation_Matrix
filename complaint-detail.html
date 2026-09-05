@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Complaint Detail</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-page">
+  <header class="topbar" id="topbar"></header>
+  <main class="app-main">
+    <div class="breadcrumb"><a href="#" id="backLink">Dashboard</a> <span>›</span> <span id="crumbId"></span></div>
+    <div class="heading-row">
+      <div>
+        <p class="eyebrow" id="catEyebrow">COMPLAINT</p>
+        <h1 id="pageTitle">Complaint</h1>
+        <p class="muted" id="subLine"></p>
+      </div>
+      <span class="badge" id="statusBadge"></span>
+    </div>
+
+    <div id="content" class="detail-grid"></div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireSession();
+    const params = new URLSearchParams(window.location.search);
+    const complaintId = params.get("id");
+
+    if (session) {
+      HCUI.renderTopbar(session);
+      document.getElementById("backLink").href = HCUI.dashboardFor(session.role);
+
+      function load() {
+        const res = HC.COMPLAINT_GET(session, complaintId);
+        if (!res.ok) {
+          document.getElementById("content").innerHTML = `<div class="empty-state"><h3>Complaint not found</h3><p>It may not exist, or you don't have access to view it.</p></div>`;
+          return;
+        }
+        render(res.complaint, res.escalations, res.assignment, res.feedback);
+      }
+
+      function render(c, escalations, assignment, feedback) {
+        document.getElementById("crumbId").textContent = c.complaint_id;
+        document.getElementById("catEyebrow").textContent = c.category.toUpperCase();
+        document.getElementById("pageTitle").textContent = c.complaint_id;
+        document.getElementById("subLine").textContent = `${c.hostel_block} · Room ${c.room_no} · Filed by ${c.resident_name}`;
+        const badge = document.getElementById("statusBadge");
+        badge.className = "badge " + HCUI.statusBadgeClass(c.status);
+        badge.textContent = c.status;
+
+        const respCd = HCUI.countdown(c.response_due);
+        const resCd = HCUI.countdown(c.resolution_due);
+        const closedOut = ["Resolved", "Closed", "Withdrawn"].includes(c.status);
+        const staff = HC.staffList();
+
+        const escHtml = escalations.length
+          ? escalations.map(e => `<div class="esc-item ${e.acknowledged ? "ack" : ""}"><strong>L${e.level} → ${HC.ROLE_LABELS[e.escalated_to_role]}</strong><small>${e.reason}${e.manual ? " (manual)" : ""} · ${new Date(e.triggered_at).toLocaleString()}${e.acknowledged ? " · acknowledged by " + e.ack_by : ""}</small></div>`).join("")
+          : `<p class="small-muted">No escalations yet.</p>`;
+
+        let actionsHtml = "";
+
+        // Resident actions
+        if (session.role === "resident" && c.resident_id === session.user_id) {
+          if (c.status === "Open") {
+            actionsHtml += `<button class="btn danger" id="btnWithdraw">Withdraw complaint</button>`;
+          }
+          if (c.status === "Resolved") {
+            actionsHtml += `
+              <div class="inline-form" style="width:100%">
+                <p class="small-muted" style="margin-bottom:8px">Confirm the resolution, or reopen it if the issue isn't actually fixed.</p>
+                <div class="btn-row-form">
+                  <button class="btn success" id="btnConfirm">Confirm resolved</button>
+                  <button class="btn danger" id="btnReopen">Reopen complaint</button>
+                </div>
+              </div>`;
+          }
+        }
+
+        // Authority actions (warden and above / admin)
+        const authorityRoles = ["warden", "deputy_warden", "chief_warden", "dean", "director", "admin"];
+        if (authorityRoles.includes(session.role) && !closedOut) {
+          const canActHere = session.role === "admin" || (session.role === "warden" ? session.hostel_block === c.hostel_block : session.role === c.current_role);
+          if (canActHere && !c.acknowledged) {
+            actionsHtml += `<button class="btn primary" id="btnAck">Acknowledge (current: ${HC.ROLE_LABELS[c.current_role]})</button>`;
+          }
+          const canAssign = session.role === "admin" || (session.role === "warden" && session.hostel_block === c.hostel_block) || ["deputy_warden", "chief_warden", "dean", "director"].includes(session.role);
+          if (canAssign) {
+            actionsHtml += `
+              <div class="inline-form" style="width:100%;margin-top:10px">
+                <label style="margin-top:0">Assign to maintenance staff</label>
+                <div class="btn-row-form">
+                  <select id="staffSelect">${staff.map(s => `<option value="${s.user_id}">${s.name}</option>`).join("")}</select>
+                  <button class="btn primary" id="btnAssign">Assign</button>
+                </div>
+              </div>`;
+          }
+          if (canActHere || session.role === "admin") {
+            actionsHtml += `
+              <div class="inline-form" style="width:100%;margin-top:10px">
+                <label style="margin-top:0">Manual escalation</label>
+                <textarea id="escReason" placeholder="Reason for escalating now, ahead of an SLA breach..."></textarea>
+                <button class="btn danger" id="btnEscalate">Escalate to next level</button>
+              </div>`;
+          }
+        }
+
+        // Maintenance staff resolve action
+        if (session.role === "maintenance_staff" && assignment && assignment.staff_id === session.user_id && assignment.status === "active" && c.status === "Assigned") {
+          actionsHtml += `
+            <div class="inline-form" style="width:100%">
+              <label style="margin-top:0">Resolution note</label>
+              <textarea id="resNote" placeholder="Describe what was fixed and how..."></textarea>
+              <button class="btn success" id="btnResolve">Mark resolved</button>
+            </div>`;
+        }
+
+        if (!actionsHtml) actionsHtml = `<p class="small-muted">No actions available for your role at this stage.</p>`;
+
+        document.getElementById("content").innerHTML = `
+          <div>
+            <div class="detail-card">
+              <h3>Description</h3>
+              <div class="desc-block">${HCUI.esc(c.description)}</div>
+              ${c.evidence_name ? `<p class="small-muted" style="margin-top:10px">📎 Evidence attached: ${HCUI.esc(c.evidence_name)}</p>` : ""}
+              <div class="kv-grid" style="margin-top:20px">
+                <div><span>Category</span><strong>${HCUI.esc(c.category)}</strong></div>
+                <div><span>Severity</span><strong>${c.severity}</strong></div>
+                <div><span>Current authority</span><strong>${HC.ROLE_LABELS[c.current_role]} (L${c.level})</strong></div>
+                <div><span>Acknowledged</span><strong>${c.acknowledged ? new Date(c.acknowledged_at).toLocaleString() : "Not yet"}</strong></div>
+              </div>
+              ${c.resolution_note ? `<h3 style="margin-top:22px">Resolution note</h3><div class="desc-block">${HCUI.esc(c.resolution_note)}</div>` : ""}
+            </div>
+            <div class="detail-card">
+              <h3>Actions</h3>
+              ${actionsHtml}
+            </div>
+          </div>
+          <div>
+            <section class="sla-card">
+              <div class="side-title"><div><p class="eyebrow">SLA STATUS</p><h2>${c.severity} severity</h2></div><span class="status-dot"></span></div>
+              <div class="sla-mini" style="margin-top:18px">
+                <div><span>Response due</span><strong class="${!c.acknowledged && respCd.overdue && !closedOut ? "overdue" : ""}">${closedOut ? "—" : (c.acknowledged ? "Met" : (respCd.overdue ? "Overdue " : "") + respCd.label)}</strong></div>
+                <div><span>Resolution due</span><strong class="${resCd.overdue && !closedOut ? "overdue" : ""}">${closedOut ? "—" : (resCd.overdue ? "Overdue " : "") + resCd.label}</strong></div>
+              </div>
+              <div class="escalation-title">Escalation history</div>
+              <div class="esc-timeline">${escHtml}</div>
+            </section>
+            <section class="info-card">
+              <h3>Assignment</h3>
+              ${assignment ? `<p class="small-muted">Assigned to <strong>${HCUI.esc(HC.findUser(assignment.staff_id)?.name || "—")}</strong> on ${new Date(assignment.assigned_at).toLocaleString()}.</p>` : `<p class="small-muted">Not yet assigned to maintenance staff.</p>`}
+              ${feedback && feedback.length ? `<h3 style="margin-top:18px">Feedback</h3><p class="small-muted">${feedback[0].reopened ? "Resident reopened this complaint." : "Resident confirmed the resolution."}</p>` : ""}
+            </section>
+          </div>`;
+
+        // wire up handlers
+        const withdrawBtn = document.getElementById("btnWithdraw");
+        if (withdrawBtn) withdrawBtn.addEventListener("click", () => act(() => HC.COMPLAINT_WITHDRAW(session, c.complaint_id), "Complaint withdrawn."));
+        const confirmBtn = document.getElementById("btnConfirm");
+        if (confirmBtn) confirmBtn.addEventListener("click", () => act(() => HC.FEEDBACK_SUBMIT(session, c.complaint_id, 5, false), "Thanks for confirming."));
+        const reopenBtn = document.getElementById("btnReopen");
+        if (reopenBtn) reopenBtn.addEventListener("click", () => act(() => HC.FEEDBACK_SUBMIT(session, c.complaint_id, null, true), "Complaint reopened."));
+        const ackBtn = document.getElementById("btnAck");
+        if (ackBtn) ackBtn.addEventListener("click", () => act(() => HC.COMPLAINT_ACKNOWLEDGE(session, c.complaint_id), "Acknowledged."));
+        const assignBtn = document.getElementById("btnAssign");
+        if (assignBtn) assignBtn.addEventListener("click", () => act(() => HC.COMPLAINT_ASSIGN(session, c.complaint_id, document.getElementById("staffSelect").value), "Complaint assigned."));
+        const escBtn = document.getElementById("btnEscalate");
+        if (escBtn) escBtn.addEventListener("click", () => act(() => HC.ESCALATION_MANUAL(session, c.complaint_id, document.getElementById("escReason").value), "Complaint escalated."));
+        const resolveBtn = document.getElementById("btnResolve");
+        if (resolveBtn) resolveBtn.addEventListener("click", () => act(() => HC.COMPLAINT_RESOLVE(session, c.complaint_id, document.getElementById("resNote").value), "Marked resolved."));
+      }
+
+      function act(fn, successMsg) {
+        const result = fn();
+        if (!result.ok) { HCUI.toast(result.message || result.error || "Action failed.", "error"); return; }
+        HCUI.toast(successMsg, "success");
+        load();
+      }
+
+      load();
+      setInterval(load, 4000);
+    }
+  </script>
+</body>
+</html>
