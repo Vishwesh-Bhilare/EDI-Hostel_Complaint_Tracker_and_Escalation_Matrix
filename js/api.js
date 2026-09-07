@@ -1,15 +1,14 @@
 /*
  * HostelCare data/service layer.
  *
- * This file plays the role that B02-B11 (gateway, identity, complaint
- * service, escalation engine, persistence, timer queue...) will play once
- * the MySQL + JDBC backend exists. Every exported function name matches an
- * operation from the SRS operation catalogue (AUTH_LOGIN, COMPLAINT_CREATE,
- * ESCALATION_ACK, etc). When the real backend is built, each function body
- * becomes an HTTPS call to that operation instead of a localStorage read/write
- * -- the pages calling api.* should not need to change.
+ * This file contains the browser-side business logic for the prototype.
+ * Persistent application state is stored in normalized MySQL tables through
+ * the lightweight JDBC server at /api/state/<key>. JSON is only the HTTP
+ * transport format. Browser-local state (the current session and testing-mode
+ * preference) remains in localStorage.
  *
- * Storage: window.localStorage, namespaced under "hc_".
+ * Existing localStorage hc_* data is migrated to MySQL automatically when a
+ * server-side collection is empty, then the legacy browser copy is removed.
  */
 const HC = (() => {
   const NS = "hc_";
@@ -27,7 +26,17 @@ const HC = (() => {
   };
 
   // ---------- low-level storage helpers ----------
-  function read(key, fallback) {
+  // Sessions and the demo timer preference are intentionally browser-local.
+  // Everything else is persisted through the JDBC-backed /api/state endpoint.
+  function isBrowserLocalKey(key) {
+    return key === K.session || key === K.testing;
+  }
+
+  function stateUrl(key) {
+    return "/api/state/" + encodeURIComponent(key);
+  }
+
+  function readLocal(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -35,8 +44,81 @@ const HC = (() => {
       return fallback;
     }
   }
-  function write(key, value) {
+
+  function writeLocal(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function putServerRaw(key, raw) {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", stateUrl(key), false);
+    xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+    xhr.send(raw);
+    return xhr.status === 204 || (xhr.status >= 200 && xhr.status < 300);
+  }
+
+  function read(key, fallback) {
+    if (isBrowserLocalKey(key)) return readLocal(key, fallback);
+
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", stateUrl(key), false);
+      xhr.send();
+
+      if (xhr.status === 200) {
+        const value = JSON.parse(xhr.responseText);
+        // Once MySQL is authoritative, remove any old persistent browser copy.
+        localStorage.removeItem(key);
+        return value;
+      }
+
+      if (xhr.status === 404) {
+        // One-time migration path from the old browser-only implementation.
+        const legacyRaw = localStorage.getItem(key);
+        if (legacyRaw !== null) {
+          try {
+            const legacyValue = JSON.parse(legacyRaw);
+            if (putServerRaw(key, legacyRaw)) {
+              localStorage.removeItem(key);
+              return legacyValue;
+            }
+          } catch (migrationError) {
+            console.warn("HostelCare: could not migrate legacy key", key, migrationError);
+          }
+        }
+        return fallback;
+      }
+
+      console.error("HostelCare persistence read failed:", key, xhr.status, xhr.responseText);
+    } catch (e) {
+      console.error("HostelCare persistence server is unavailable. Start the project with run.bat/run.sh.", e);
+    }
+
+    // Offline fallback keeps the UI usable, but data written here is not
+    // guaranteed to survive a change of browser origin. The normal supported
+    // launch path is the JDBC server included with this project.
+    return readLocal(key, fallback);
+  }
+
+  function write(key, value) {
+    if (isBrowserLocalKey(key)) {
+      writeLocal(key, value);
+      return;
+    }
+
+    const raw = JSON.stringify(value);
+    try {
+      if (putServerRaw(key, raw)) {
+        // MySQL is authoritative; do not retain persistent entity JSON locally.
+        localStorage.removeItem(key);
+        return;
+      }
+      console.error("HostelCare persistence write failed:", key);
+    } catch (e) {
+      console.error("HostelCare persistence server is unavailable. Start the project with run.bat/run.sh.", e);
+    }
+
+    localStorage.setItem(key, raw);
   }
   function uid(prefix) {
     return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

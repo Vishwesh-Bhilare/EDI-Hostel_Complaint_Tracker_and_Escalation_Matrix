@@ -91,9 +91,10 @@ INSERT INTO sla_chain_steps (severity, level, role, role_label) VALUES
 DROP TABLE IF EXISTS users;
 CREATE TABLE users (
   user_id        INT AUTO_INCREMENT PRIMARY KEY,
+  app_user_key   VARCHAR(50) NULL UNIQUE,          -- stable ID used by the existing HC.* frontend contract
   name           VARCHAR(100) NOT NULL,
   username       VARCHAR(30)  NOT NULL UNIQUE,   -- institutional ID, e.g. TY123456
-  password_hash  VARCHAR(255) NOT NULL,          -- BCrypt hash — never store plaintext
+  password_hash  VARCHAR(255) NOT NULL,          -- prototype currently mirrors the frontend password value; hash in a later auth pass
   email          VARCHAR(120),
   role           ENUM('resident','maintenance_staff','warden','deputy_warden',
                        'chief_warden','dean','director','admin') NOT NULL,
@@ -159,7 +160,8 @@ CREATE FULLTEXT INDEX idx_complaints_description ON complaints(description); -- 
 
 DROP TABLE IF EXISTS assignments;
 CREATE TABLE assignments (
-  assignment_id  INT AUTO_INCREMENT PRIMARY KEY,
+  assignment_id       INT AUTO_INCREMENT PRIMARY KEY,
+  app_assignment_key  VARCHAR(50) NULL UNIQUE,
   complaint_id   VARCHAR(20) NOT NULL,
   staff_id       INT NOT NULL,
   assigned_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -177,7 +179,8 @@ CREATE INDEX idx_assignments_staff ON assignments(staff_id, status);
 
 DROP TABLE IF EXISTS escalation_events;
 CREATE TABLE escalation_events (
-  escalation_id     INT AUTO_INCREMENT PRIMARY KEY,
+  escalation_id         INT AUTO_INCREMENT PRIMARY KEY,
+  app_escalation_key    VARCHAR(50) NULL UNIQUE,
   complaint_id      VARCHAR(20) NOT NULL,
   level             TINYINT NOT NULL,
   escalated_to_role ENUM('maintenance_staff','warden','deputy_warden','chief_warden','dean','director') NOT NULL,
@@ -200,7 +203,8 @@ CREATE INDEX idx_escalations_complaint ON escalation_events(complaint_id);
 
 DROP TABLE IF EXISTS feedback;
 CREATE TABLE feedback (
-  feedback_id    INT AUTO_INCREMENT PRIMARY KEY,
+  feedback_id       INT AUTO_INCREMENT PRIMARY KEY,
+  app_feedback_key  VARCHAR(50) NULL UNIQUE,
   complaint_id   VARCHAR(20) NOT NULL,
   resident_id    INT NOT NULL,
   rating         TINYINT NULL CHECK (rating BETWEEN 1 AND 5),
@@ -216,7 +220,8 @@ CREATE TABLE feedback (
 
 DROP TABLE IF EXISTS notifications;
 CREATE TABLE notifications (
-  notification_id   INT AUTO_INCREMENT PRIMARY KEY,
+  notification_id      INT AUTO_INCREMENT PRIMARY KEY,
+  app_notification_key VARCHAR(50) NULL UNIQUE,
   recipient_role    ENUM('resident','maintenance_staff','warden','deputy_warden','chief_warden','dean','director','admin') NOT NULL,
   recipient_block   VARCHAR(20) NULL,
   type              VARCHAR(40) NOT NULL,
@@ -265,27 +270,26 @@ FROM complaints
 GROUP BY hostel_block, severity, status;
 
 -- =====================================================================
--- Seed data — mirrors the demo accounts in the frontend so both stay
--- in lockstep while you wire up JDBC.
+-- Seed data — mirrors the demo accounts in the frontend.
 --
--- IMPORTANT: password_hash values below are placeholders. Generate real
--- BCrypt hashes from your Java layer (e.g. org.mindrot.jbcrypt.BCrypt)
--- for these plaintext passwords and swap them in before go-live:
---   admin123 / resident123 / staff123 / warden123
+-- The current prototype still performs password comparison in js/api.js, so
+-- these demo values are stored as-is for compatibility. Moving authentication
+-- into Java and replacing these values with salted hashes is intentionally a
+-- separate security/backend change.
 -- =====================================================================
 
-INSERT INTO users (name, username, password_hash, email, role, room_no, hostel_block, status) VALUES
-  ('Admin Office',        'AD900001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_admin123',    'admin@hostelcare.edu',   'admin',              NULL,    NULL,      'active'),
-  ('Rahul Sharma',        'TY123456', '$2a$10$REPLACE_WITH_BCRYPT_HASH_resident123', 'rahul@college.edu',      'resident',           'B-204', 'Block B', 'active'),
-  ('Ananya Iyer',         'TY123457', '$2a$10$REPLACE_WITH_BCRYPT_HASH_resident123', 'ananya@college.edu',     'resident',           'A-110', 'Block A', 'active'),
-  ('Suresh Patil',        'ST200001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_staff123',    'suresh@hostelcare.edu',  'maintenance_staff',  NULL,    NULL,      'active'),
-  ('Meena Kulkarni',      'ST200002', '$2a$10$REPLACE_WITH_BCRYPT_HASH_staff123',    'meena@hostelcare.edu',   'maintenance_staff',  NULL,    NULL,      'active'),
-  ('Prakash Rane',        'WD300001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'prakash@hostelcare.edu', 'warden',             NULL,    'Block A', 'active'),
-  ('Sunita Deshmukh',     'WD300002', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'sunita@hostelcare.edu',  'warden',             NULL,    'Block B', 'active'),
-  ('Kiran Joshi',         'WD400001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'kiran@hostelcare.edu',   'deputy_warden',      NULL,    NULL,      'active'),
-  ('Dr. Vikram Nair',     'WD500001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'vikram@hostelcare.edu',  'chief_warden',       NULL,    NULL,      'active'),
-  ('Dr. Leela Menon',     'WD600001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'leela@hostelcare.edu',   'dean',               NULL,    NULL,      'active'),
-  ('Dr. A. Fernandes',    'WD700001', '$2a$10$REPLACE_WITH_BCRYPT_HASH_warden123',   'fernandes@hostelcare.edu','director',          NULL,    NULL,      'active');
+INSERT INTO users (app_user_key, name, username, password_hash, email, role, room_no, hostel_block, status) VALUES
+  ('u_admin',   'Admin Office',        'AD900001', 'admin123',    'admin@hostelcare.edu',    'admin',             NULL,    NULL,      'active'),
+  ('u_res1',    'Rahul Sharma',        'TY123456', 'resident123', 'rahul@college.edu',       'resident',          'B-204', 'Block B', 'active'),
+  ('u_res2',    'Ananya Iyer',         'TY123457', 'resident123', 'ananya@college.edu',      'resident',          'A-110', 'Block A', 'active'),
+  ('u_staff1',  'Suresh Patil',        'ST200001', 'staff123',    'suresh@hostelcare.edu',   'maintenance_staff', NULL,    NULL,      'active'),
+  ('u_staff2',  'Meena Kulkarni',      'ST200002', 'staff123',    'meena@hostelcare.edu',    'maintenance_staff', NULL,    NULL,      'active'),
+  ('u_ward_a',  'Prakash Rane',        'WD300001', 'warden123',   'prakash@hostelcare.edu',  'warden',            NULL,    'Block A', 'active'),
+  ('u_ward_b',  'Sunita Deshmukh',     'WD300002', 'warden123',   'sunita@hostelcare.edu',   'warden',            NULL,    'Block B', 'active'),
+  ('u_dep1',    'Kiran Joshi',         'WD400001', 'warden123',   'kiran@hostelcare.edu',    'deputy_warden',     NULL,    NULL,      'active'),
+  ('u_chief1',  'Dr. Vikram Nair',     'WD500001', 'warden123',   'vikram@hostelcare.edu',   'chief_warden',      NULL,    NULL,      'active'),
+  ('u_dean1',   'Dr. Leela Menon',     'WD600001', 'warden123',   'leela@hostelcare.edu',    'dean',              NULL,    NULL,      'active'),
+  ('u_dir1',    'Dr. A. Fernandes',    'WD700001', 'warden123',   'fernandes@hostelcare.edu','director',          NULL,    NULL,      'active');
 
 SET FOREIGN_KEY_CHECKS = 1;
 
@@ -300,3 +304,15 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- CREATE USER 'hostelcare_app'@'%' IDENTIFIED BY 'change_this_password';
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON hostelcare_db.* TO 'hostelcare_app'@'%';
 -- FLUSH PRIVILEGES;
+
+-- =====================================================================
+-- Persistence note
+-- =====================================================================
+-- HostelCareServer.java maps the existing HC.* browser contract directly to
+-- the normalized tables above. JSON is used only while values cross HTTP; no
+-- app_state/key-value JSON table is part of the current storage design.
+--
+-- When upgrading from the previous persistence patch, the Java server detects
+-- an old app_state table, imports its collections into these relational tables
+-- transactionally, and drops app_state only after a successful migration.
+
