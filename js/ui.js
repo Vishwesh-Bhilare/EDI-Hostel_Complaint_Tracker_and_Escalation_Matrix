@@ -154,7 +154,7 @@ const HCUI = (() => {
   return { requireSession, requireRole, dashboardFor, renderTopbar, toast, timeAgo, countdown, statusBadgeClass, severityBadgeClass, openModal, closeModalGeneric, esc, initials };
 })();
 
-// Run the SLA/escalation engine on every page that loads ui.js so breaches
+// Run the performance policy/escalation engine on every page that loads ui.js so breaches
 // keep getting detected as long as any HostelCare tab is open. Once the
 // MySQL/JDBC backend exists this becomes a real scheduled service (B09/B06)
 // instead of a client-side setInterval.

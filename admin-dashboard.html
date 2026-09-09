@@ -14,7 +14,7 @@
       <div>
         <p class="eyebrow">ADMINISTRATION</p>
         <h1>System overview</h1>
-        <p class="muted">Complaint volume, SLA compliance, users, policies and audit evidence.</p>
+        <p class="muted">Complaint volume, Performance compliance, users, policies and audit evidence.</p>
       </div>
     </div>
 
@@ -23,7 +23,7 @@
     <div class="tab-row">
       <button class="tab-btn active" data-tab="complaints">Complaints</button>
       <button class="tab-btn" data-tab="users">Users</button>
-      <button class="tab-btn" data-tab="policy">SLA policy</button>
+      <button class="tab-btn" data-tab="policy">Performance policy</button>
       <button class="tab-btn" data-tab="audit">Audit log</button>
     </div>
 
@@ -75,12 +75,12 @@
     <div id="pane-policy" style="display:none">
       <div class="toggle-row">
         <label class="switch"><input type="checkbox" id="testingToggle"><span class="slider-toggle"></span></label>
-        <div><strong>Testing mode</strong><br><small class="small-muted">Compresses SLA hours into seconds (20s per hour) so escalation can be demonstrated live, instead of waiting real hours. Applies to complaints created after this is switched on.</small></div>
+        <div><strong>Testing mode</strong><br><small class="small-muted">Compresses resolution hours into seconds (20s per hour) so escalation can be demonstrated live, instead of waiting real hours. Applies to complaints created after this is switched on.</small></div>
       </div>
       <div class="detail-card">
         <h3>Escalation matrix (SRS §6.3)</h3>
         <table class="matrix-table">
-          <thead><tr><th>Severity</th><th>Response SLA</th><th>Resolution SLA</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th></tr></thead>
+          <thead><tr><th>Severity</th><th>Response Target</th><th>Resolution Target</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th></tr></thead>
           <tbody id="matrixRows"></tbody>
         </table>
       </div>
@@ -108,7 +108,7 @@
           <div class="stat-card accent"><span>Total complaints</span><strong>${s.total}</strong></div>
           <div class="stat-card"><span>Open / in progress</span><strong>${s.open}</strong></div>
           <div class="stat-card"><span>Escalated</span><strong>${s.escalated}</strong></div>
-          <div class="stat-card"><span>SLA compliance</span><strong>${s.complianceRate}%</strong></div>`;
+          <div class="stat-card"><span>Performance compliance</span><strong>${s.complianceRate}%</strong></div>`;
       }
 
       const statusSel = document.getElementById("fStatus");
@@ -170,14 +170,14 @@
       });
 
       function renderMatrix() {
-        document.getElementById("matrixRows").innerHTML = Object.entries(HC.SLA_MATRIX).map(([sev, p]) => {
+        document.getElementById("matrixRows").innerHTML = Object.entries(HC.PERFORMANCE_MATRIX).map(([sev, p]) => {
           const cells = [1, 2, 3, 4].map(l => { const step = p.chain.find(c => c.level === l); return `<td>${step ? step.label : "—"}</td>`; }).join("");
           return `<tr><td><strong>${sev}</strong></td><td>${p.response / 3600000 >= 1 ? (p.response / 3600000) + " h" : (p.response / 60000) + " min"}</td><td>${p.resolution / 3600000} h</td>${cells}</tr>`;
         }).join("");
       }
       const testingToggle = document.getElementById("testingToggle");
       testingToggle.checked = HC.testingMode();
-      testingToggle.addEventListener("change", function () { HC.setTestingMode(this.checked); HCUI.toast(this.checked ? "Testing mode on — new complaints use compressed SLA timers." : "Testing mode off.", "info"); });
+      testingToggle.addEventListener("change", function () { HC.setTestingMode(this.checked); HCUI.toast(this.checked ? "Testing mode on — new complaints use compressed resolution timers." : "Testing mode off.", "info"); });
 
       function renderAudit() {
         document.getElementById("auditRows").innerHTML = HC.AUDIT_LIST(session).slice(0, 100).map(a => `<tr>

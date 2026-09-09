@@ -100,7 +100,7 @@
             actionsHtml += `
               <div class="inline-form" style="width:100%;margin-top:10px">
                 <label style="margin-top:0">Manual escalation</label>
-                <textarea id="escReason" placeholder="Reason for escalating now, ahead of an SLA breach..."></textarea>
+                <textarea id="escReason" placeholder="Reason for escalating now, ahead of a deadline breach..."></textarea>
                 <button class="btn danger" id="btnEscalate">Escalate to next level</button>
               </div>`;
           }
@@ -138,9 +138,9 @@
             </div>
           </div>
           <div>
-            <section class="sla-card">
-              <div class="side-title"><div><p class="eyebrow">SLA STATUS</p><h2>${c.severity} severity</h2></div><span class="status-dot"></span></div>
-              <div class="sla-mini" style="margin-top:18px">
+            <section class="policy-card">
+              <div class="side-title"><div><p class="eyebrow">POLICY STATUS</p><h2>${c.severity} severity</h2></div><span class="status-dot"></span></div>
+              <div class="policy-mini" style="margin-top:18px">
                 <div><span>Response due</span><strong class="${!c.acknowledged && respCd.overdue && !closedOut ? "overdue" : ""}">${closedOut ? "—" : (c.acknowledged ? "Met" : (respCd.overdue ? "Overdue " : "") + respCd.label)}</strong></div>
                 <div><span>Resolution due</span><strong class="${resCd.overdue && !closedOut ? "overdue" : ""}">${closedOut ? "—" : (resCd.overdue ? "Overdue " : "") + resCd.label}</strong></div>
               </div>

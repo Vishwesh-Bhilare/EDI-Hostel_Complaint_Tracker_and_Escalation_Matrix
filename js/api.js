@@ -130,14 +130,14 @@ const HC = (() => {
     return "req_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
-  // ---------- SLA / escalation matrix (SRS section 6.3) ----------
+  // ---------- Performance policy / escalation matrix (SRS section 6.3) ----------
   // Duration unit is milliseconds. TESTING_SCALE compresses hours into
   // seconds so the escalation engine can be observed in a live demo instead
   // of waiting real hours; Admin > Settings can toggle it.
   const HOUR = 3600 * 1000;
   const MIN = 60 * 1000;
 
-  const SLA_MATRIX = {
+  const PERFORMANCE_MATRIX = {
     Low: {
       response: 12 * HOUR, resolution: 72 * HOUR,
       chain: [
@@ -179,7 +179,7 @@ const HC = (() => {
     write(K.testing, !!on);
   }
   function scale(ms) {
-    // In testing mode, 1 hour of SLA time becomes 20 seconds of wall time.
+    // In testing mode, 1 hour of resolution time becomes 20 seconds of wall time.
     return testingMode() ? Math.round(ms / HOUR) * 20 * 1000 || 5000 : ms;
   }
 
@@ -315,7 +315,7 @@ const HC = (() => {
   function saveComplaints(list) { write(K.complaints, list); }
 
   function policyFor(category, severity) {
-    return SLA_MATRIX[severity];
+    return PERFORMANCE_MATRIX[severity];
   }
 
   function COMPLAINT_CREATE(actor, data, idempotency_key) {
@@ -414,7 +414,7 @@ const HC = (() => {
     return actor.role === atLevelRole;
   }
 
-  function chainFor(complaint) { return SLA_MATRIX[complaint.severity].chain; }
+  function chainFor(complaint) { return PERFORMANCE_MATRIX[complaint.severity].chain; }
   function roleAtLevel(complaint, level) {
     const chain = chainFor(complaint);
     const step = chain.find(c => c.level === level) || chain[chain.length - 1];
@@ -509,7 +509,7 @@ const HC = (() => {
     c.status = `Escalated-L${c.level}`;
     c.acknowledged = false;
     // restart the response clock at the new level so it can be measured again
-    const policy = SLA_MATRIX[c.severity];
+    const policy = PERFORMANCE_MATRIX[c.severity];
     c.response_due = Date.now() + scale(policy.response);
     if (!manual) {
       // give the resolution clock a shorter follow-up window if it was a resolution breach
@@ -572,7 +572,7 @@ const HC = (() => {
     if (reopen) {
       c.status = assignmentFor(complaint_id) ? "Assigned" : `Escalated-L${c.level}`;
       c.resolved_at = null;
-      const policy = SLA_MATRIX[c.severity];
+      const policy = PERFORMANCE_MATRIX[c.severity];
       c.resolution_due = Date.now() + scale(policy.resolution);
     } else {
       c.status = "Closed";
@@ -595,10 +595,10 @@ const HC = (() => {
       if (["Resolved", "Closed", "Withdrawn"].includes(c.status)) continue;
       if (c.breach_flag) continue;
       if (!c.acknowledged && now > c.response_due) {
-        escalate(c, "Response SLA breached", false, null);
+        escalate(c, "Response deadline breached", false, null);
         changed = true;
       } else if (now > c.resolution_due) {
-        escalate(c, "Resolution SLA breached", false, null);
+        escalate(c, "Resolution deadline breached", false, null);
         changed = true;
       }
     }
@@ -638,7 +638,7 @@ const HC = (() => {
   seed();
 
   return {
-    SLA_MATRIX, ROLE_LABELS, CATEGORIES, BLOCKS,
+    PERFORMANCE_MATRIX, ROLE_LABELS, CATEGORIES, BLOCKS,
     AUTH_LOGIN, AUTH_LOGOUT, getSession, REGISTER,
     listUsers, findUser, staffList, ADMIN_CREATE_USER, ADMIN_SET_USER_STATUS,
     COMPLAINT_CREATE, COMPLAINT_LIST, COMPLAINT_GET, COMPLAINT_ACKNOWLEDGE,

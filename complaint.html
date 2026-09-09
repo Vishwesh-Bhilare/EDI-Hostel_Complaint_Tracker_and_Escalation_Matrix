@@ -14,7 +14,7 @@
       <div>
         <p class="eyebrow">COMPLAINT MANAGEMENT</p>
         <h1>Submit a complaint</h1>
-        <p class="muted">Report an issue in your hostel. The system will bind it to an SLA and escalation path.</p>
+        <p class="muted">Report an issue in your hostel. The system will bind it to a performance policy and escalation path.</p>
       </div>
       <div class="request-chip"><span>●</span> Secure submission</div>
     </div>
@@ -62,19 +62,19 @@
         <button class="primary-btn wide" type="submit">SUBMIT COMPLAINT <span>→</span></button>
       </section>
       <aside class="side-column">
-        <section class="sla-card">
+        <section class="policy-card">
           <div class="side-title"><div><p class="eyebrow">AUTO-BOUND POLICY</p><h2 id="severityTitle">Medium severity</h2></div><span class="status-dot"></span></div>
-          <div class="sla-stats"><div><span>Response SLA</span><strong id="responseSla">6 hours</strong></div><div><span>Resolution SLA</span><strong id="resolutionSla">48 hours</strong></div></div>
+          <div class="policy-stats"><div><span>Response Target</span><strong id="responseTarget">6 hours</strong></div><div><span>Resolution Target</span><strong id="resolutionTarget">48 hours</strong></div></div>
           <div class="escalation-title">Escalation path</div>
           <div class="timeline" id="timeline"></div>
-          <div class="auto-note"><span>⚡</span><div><strong>Automatic escalation</strong><small>Unresolved SLA breaches are escalated without manual input.</small></div></div>
+          <div class="auto-note"><span>⚡</span><div><strong>Automatic escalation</strong><small>Unresolved policy breaches are escalated without manual input.</small></div></div>
         </section>
         <section class="info-card">
           <h3>What happens next?</h3>
           <ol>
             <li><span>1</span><div><strong>Complaint registered</strong><small>Your complaint receives a unique ID.</small></div></li>
             <li><span>2</span><div><strong>Assigned</strong><small>The appropriate staff member receives it.</small></div></li>
-            <li><span>3</span><div><strong>Tracked against SLA</strong><small>The system watches the due-by time.</small></div></li>
+            <li><span>3</span><div><strong>Tracked against Policy</strong><small>The system watches the due-by time.</small></div></li>
             <li><span>4</span><div><strong>Escalated if required</strong><small>The complaint moves through the defined chain.</small></div></li>
           </ol>
         </section>
@@ -87,7 +87,7 @@
       <div class="success-icon">✓</div>
       <p class="eyebrow">SUBMISSION SUCCESSFUL</p>
       <h2>Complaint submitted</h2>
-      <p class="muted">Your complaint has been registered and bound to the selected SLA policy.</p>
+      <p class="muted">Your complaint has been registered and bound to the selected performance policy.</p>
       <div class="complaint-id"><small>Complaint ID</small><strong id="generatedId">HC-2026-000001</strong></div>
       <div class="success-status"><span>●</span> Submitted</div>
       <p class="small-muted">You will receive notifications when the complaint is assigned, escalated or resolved.</p>
@@ -114,8 +114,8 @@
       function renderPolicy(sev) {
         const p = POLICY_TEXT[sev];
         document.getElementById("severityTitle").textContent = sev + " severity";
-        document.getElementById("responseSla").textContent = p.response;
-        document.getElementById("resolutionSla").textContent = p.resolution;
+        document.getElementById("responseTarget").textContent = p.response;
+        document.getElementById("resolutionTarget").textContent = p.resolution;
         timeline.innerHTML = p.chain.map(c => `<div class="timeline-item"><strong>${c[0]} · ${c[1]}</strong><small>Next authority if the applicable transition is triggered.</small></div>`).join("");
       }
       document.querySelectorAll(".severity-card").forEach(btn => {
