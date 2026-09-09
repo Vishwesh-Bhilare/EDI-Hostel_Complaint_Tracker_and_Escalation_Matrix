@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Administration</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-page">
+  <header class="topbar" id="topbar"></header>
+  <main class="app-main">
+    <div class="breadcrumb">Dashboard</div>
+    <div class="heading-row">
+      <div>
+        <p class="eyebrow">ADMINISTRATION</p>
+        <h1>System overview</h1>
+        <p class="muted">Complaint volume, SLA compliance, users, policies and audit evidence.</p>
+      </div>
+    </div>
+
+    <div class="dash-stats" id="statCards"></div>
+
+    <div class="tab-row">
+      <button class="tab-btn active" data-tab="complaints">Complaints</button>
+      <button class="tab-btn" data-tab="users">Users</button>
+      <button class="tab-btn" data-tab="policy">SLA policy</button>
+      <button class="tab-btn" data-tab="audit">Audit log</button>
+    </div>
+
+    <div id="pane-complaints">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="fBlock"><option value="">All blocks</option><option>Block A</option><option>Block B</option><option>Block C</option><option>Block D</option></select>
+          <select id="fSeverity"><option value="">All severities</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
+          <select id="fStatus"><option value="">All statuses</option></select>
+          <input type="text" id="fSearch" placeholder="Search description or complaint ID">
+        </div>
+      </div>
+      <div class="table-card">
+        <table class="hc-table">
+          <thead><tr><th>Complaint ID</th><th>Resident</th><th>Category</th><th>Severity</th><th>Block / Room</th><th>Level</th><th>Status</th></tr></thead>
+          <tbody id="complaintRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="pane-users" style="display:none">
+      <div class="detail-card">
+        <h3>Create account</h3>
+        <div class="grid-2">
+          <div class="field"><label>Full name</label><input id="uName" type="text"></div>
+          <div class="field"><label>Institutional ID</label><input id="uUsername" type="text" placeholder="e.g. WD300003"></div>
+          <div class="field"><label>Role</label><select id="uRole">
+            <option value="maintenance_staff">Maintenance Staff</option>
+            <option value="warden">Warden</option>
+            <option value="deputy_warden">Assistant / Deputy Warden</option>
+            <option value="chief_warden">Chief Warden</option>
+            <option value="dean">Dean of Student Welfare</option>
+            <option value="director">Director / Principal</option>
+            <option value="admin">Administrator</option>
+          </select></div>
+          <div class="field" id="blockField"><label>Hostel block (wardens only)</label><select id="uBlock"><option value="">—</option><option>Block A</option><option>Block B</option><option>Block C</option><option>Block D</option></select></div>
+          <div class="field"><label>Temporary password</label><input id="uPassword" type="text" placeholder="changeme123"></div>
+        </div>
+        <button class="btn primary" id="btnCreateUser">Create account</button>
+      </div>
+      <div class="table-card">
+        <table class="hc-table">
+          <thead><tr><th>Name</th><th>Institutional ID</th><th>Role</th><th>Block</th><th>Status</th><th></th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="pane-policy" style="display:none">
+      <div class="toggle-row">
+        <label class="switch"><input type="checkbox" id="testingToggle"><span class="slider-toggle"></span></label>
+        <div><strong>Testing mode</strong><br><small class="small-muted">Compresses SLA hours into seconds (20s per hour) so escalation can be demonstrated live, instead of waiting real hours. Applies to complaints created after this is switched on.</small></div>
+      </div>
+      <div class="detail-card">
+        <h3>Escalation matrix (SRS §6.3)</h3>
+        <table class="matrix-table">
+          <thead><tr><th>Severity</th><th>Response SLA</th><th>Resolution SLA</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th></tr></thead>
+          <tbody id="matrixRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="pane-audit" style="display:none">
+      <div class="table-card">
+        <table class="hc-table">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead>
+          <tbody id="auditRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireRole(["admin"]);
+    if (session) {
+      HCUI.renderTopbar(session);
+
+      function renderStats() {
+        const s = HC.ANALYTICS_SUMMARY(session);
+        document.getElementById("statCards").innerHTML = `
+          <div class="stat-card accent"><span>Total complaints</span><strong>${s.total}</strong></div>
+          <div class="stat-card"><span>Open / in progress</span><strong>${s.open}</strong></div>
+          <div class="stat-card"><span>Escalated</span><strong>${s.escalated}</strong></div>
+          <div class="stat-card"><span>SLA compliance</span><strong>${s.complianceRate}%</strong></div>`;
+      }
+
+      const statusSel = document.getElementById("fStatus");
+      ["Open", "Acknowledged", "Assigned", "Escalated-L1", "Escalated-L2", "Escalated-L3", "Escalated-L4", "Resolved", "Closed", "Withdrawn"].forEach(s => {
+        const o = document.createElement("option"); o.value = s; o.textContent = s; statusSel.appendChild(o);
+      });
+
+      function renderComplaints() {
+        const filters = {
+          hostel_block: document.getElementById("fBlock").value || undefined,
+          severity: document.getElementById("fSeverity").value || undefined,
+          status: statusSel.value || undefined,
+          q: document.getElementById("fSearch").value || undefined,
+        };
+        const list = HC.COMPLAINT_LIST(session, filters);
+        const body = document.getElementById("complaintRows");
+        if (!list.length) { body.innerHTML = `<tr class="empty-row"><td colspan="7">No complaints match these filters.</td></tr>`; return; }
+        body.innerHTML = list.map(c => `<tr data-id="${c.complaint_id}">
+          <td><strong>${c.complaint_id}</strong></td>
+          <td>${HCUI.esc(c.resident_name)}</td>
+          <td>${HCUI.esc(c.category)}</td>
+          <td><span class="sev-tag ${HCUI.severityBadgeClass(c.severity)}">${c.severity}</span></td>
+          <td>${c.hostel_block} · ${HCUI.esc(c.room_no)}</td>
+          <td>L${c.level} · ${HC.ROLE_LABELS[c.current_role]}</td>
+          <td><span class="badge ${HCUI.statusBadgeClass(c.status)}">${c.status}</span></td>
+        </tr>`).join("");
+        body.querySelectorAll("tr[data-id]").forEach(row => row.addEventListener("click", () => window.location.href = "complaint-detail.html?id=" + encodeURIComponent(row.dataset.id)));
+      }
+
+      function renderUsers() {
+        const body = document.getElementById("userRows");
+        body.innerHTML = HC.listUsers().filter(u => u.role !== "resident").map(u => `<tr>
+          <td>${HCUI.esc(u.name)}</td><td>${HCUI.esc(u.username)}</td><td>${HC.ROLE_LABELS[u.role]}</td><td>${u.hostel_block || "—"}</td>
+          <td><span class="badge ${u.status === "active" ? "badge-resolved" : "badge-muted"}">${u.status}</span></td>
+          <td><button class="btn" data-toggle="${u.user_id}">${u.status === "active" ? "Deactivate" : "Activate"}</button></td>
+        </tr>`).join("");
+        body.querySelectorAll("[data-toggle]").forEach(btn => btn.addEventListener("click", () => {
+          const u = HC.findUser(btn.dataset.toggle);
+          HC.ADMIN_SET_USER_STATUS(session, u.user_id, u.status === "active" ? "suspended" : "active");
+          renderUsers();
+        }));
+      }
+      document.getElementById("uRole").addEventListener("change", function () {
+        document.getElementById("blockField").style.display = this.value === "warden" ? "" : "none";
+      });
+      document.getElementById("blockField").style.display = "none";
+      document.getElementById("btnCreateUser").addEventListener("click", () => {
+        const result = HC.ADMIN_CREATE_USER(session, {
+          name: document.getElementById("uName").value.trim(),
+          username: document.getElementById("uUsername").value.trim(),
+          role: document.getElementById("uRole").value,
+          hostel_block: document.getElementById("uBlock").value || null,
+          password: document.getElementById("uPassword").value.trim(),
+        });
+        if (!result.ok) { HCUI.toast(result.message || "Could not create account.", "error"); return; }
+        HCUI.toast("Account created.", "success");
+        document.getElementById("uName").value = ""; document.getElementById("uUsername").value = ""; document.getElementById("uPassword").value = "";
+        renderUsers();
+      });
+
+      function renderMatrix() {
+        document.getElementById("matrixRows").innerHTML = Object.entries(HC.SLA_MATRIX).map(([sev, p]) => {
+          const cells = [1, 2, 3, 4].map(l => { const step = p.chain.find(c => c.level === l); return `<td>${step ? step.label : "—"}</td>`; }).join("");
+          return `<tr><td><strong>${sev}</strong></td><td>${p.response / 3600000 >= 1 ? (p.response / 3600000) + " h" : (p.response / 60000) + " min"}</td><td>${p.resolution / 3600000} h</td>${cells}</tr>`;
+        }).join("");
+      }
+      const testingToggle = document.getElementById("testingToggle");
+      testingToggle.checked = HC.testingMode();
+      testingToggle.addEventListener("change", function () { HC.setTestingMode(this.checked); HCUI.toast(this.checked ? "Testing mode on — new complaints use compressed SLA timers." : "Testing mode off.", "info"); });
+
+      function renderAudit() {
+        document.getElementById("auditRows").innerHTML = HC.AUDIT_LIST(session).slice(0, 100).map(a => `<tr>
+          <td>${new Date(a.timestamp).toLocaleString()}</td><td>${HCUI.esc(a.actor)}</td><td>${a.action}</td><td>${HCUI.esc(a.target)}</td>
+          <td><span class="badge ${a.outcome === "OK" ? "badge-resolved" : "badge-escalated"}">${a.outcome}</span></td>
+        </tr>`).join("") || `<tr class="empty-row"><td colspan="5">No audit events yet.</td></tr>`;
+      }
+
+      const panes = { complaints: "pane-complaints", users: "pane-users", policy: "pane-policy", audit: "pane-audit" };
+      document.querySelectorAll(".tab-btn").forEach(btn => btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        Object.values(panes).forEach(id => document.getElementById(id).style.display = "none");
+        document.getElementById(panes[btn.dataset.tab]).style.display = "";
+        if (btn.dataset.tab === "users") renderUsers();
+        if (btn.dataset.tab === "policy") renderMatrix();
+        if (btn.dataset.tab === "audit") renderAudit();
+      }));
+
+      [document.getElementById("fBlock"), document.getElementById("fSeverity"), statusSel].forEach(el => el.addEventListener("change", renderComplaints));
+      document.getElementById("fSearch").addEventListener("input", renderComplaints);
+
+      renderStats(); renderComplaints();
+      setInterval(() => { renderStats(); renderComplaints(); }, 4000);
+    }
+  </script>
+</body>
+</html>

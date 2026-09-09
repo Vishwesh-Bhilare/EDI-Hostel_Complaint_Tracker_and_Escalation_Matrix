@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | My Complaints</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-page">
+  <header class="topbar" id="topbar"></header>
+  <main class="app-main">
+    <div class="breadcrumb">Dashboard</div>
+    <div class="heading-row">
+      <div>
+        <p class="eyebrow">RESIDENT</p>
+        <h1>My complaints</h1>
+        <p class="muted" id="welcomeLine"></p>
+      </div>
+      <a class="primary-btn" style="width:auto;padding:13px 20px" href="complaint.html">SUBMIT COMPLAINT <span>→</span></a>
+    </div>
+
+    <div class="dash-stats" id="statCards"></div>
+
+    <div class="toolbar">
+      <div class="filters">
+        <select id="fStatus"><option value="">All statuses</option></select>
+        <select id="fSeverity"><option value="">All severities</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
+        <input type="text" id="fSearch" placeholder="Search description or complaint ID">
+      </div>
+    </div>
+
+    <div class="table-card">
+      <table class="hc-table">
+        <thead><tr><th>Complaint ID</th><th>Category</th><th>Severity</th><th>Block / Room</th><th>Status</th><th>Resolution due</th><th>Submitted</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireRole(["resident"]);
+    if (session) {
+      HCUI.renderTopbar(session);
+      document.getElementById("welcomeLine").textContent = `Room ${session.room_no || "—"} · ${session.hostel_block || "—"}`;
+
+      function renderStats() {
+        const s = HC.ANALYTICS_SUMMARY(session);
+        document.getElementById("statCards").innerHTML = `
+          <div class="stat-card accent"><span>Total complaints</span><strong>${s.total}</strong></div>
+          <div class="stat-card"><span>Open / in progress</span><strong>${s.open}</strong></div>
+          <div class="stat-card"><span>Escalated</span><strong>${s.escalated}</strong></div>
+          <div class="stat-card"><span>Resolved</span><strong>${s.resolved}</strong></div>`;
+      }
+
+      function renderRows() {
+        const filters = { status: document.getElementById("fStatus").value, severity: document.getElementById("fSeverity").value, q: document.getElementById("fSearch").value };
+        const list = HC.COMPLAINT_LIST(session, filters);
+        const body = document.getElementById("rows");
+        if (!list.length) {
+          body.innerHTML = `<tr class="empty-row"><td colspan="7">No complaints match these filters yet.</td></tr>`;
+          return;
+        }
+        body.innerHTML = list.map(c => {
+          const cd = HCUI.countdown(c.resolution_due);
+          const due = ["Resolved", "Closed", "Withdrawn"].includes(c.status) ? "—" : `${cd.overdue ? "Overdue by " : "in "}${cd.label}`;
+          return `<tr data-id="${c.complaint_id}">
+            <td><strong>${c.complaint_id}</strong></td>
+            <td>${HCUI.esc(c.category)}</td>
+            <td><span class="sev-tag ${HCUI.severityBadgeClass(c.severity)}">${c.severity}</span></td>
+            <td>${c.hostel_block} · ${HCUI.esc(c.room_no)}</td>
+            <td><span class="badge ${HCUI.statusBadgeClass(c.status)}">${c.status}</span></td>
+            <td>${due}</td>
+            <td>${new Date(c.created_at).toLocaleDateString()}</td>
+          </tr>`;
+        }).join("");
+        body.querySelectorAll("tr[data-id]").forEach(row => {
+          row.addEventListener("click", () => window.location.href = "complaint-detail.html?id=" + encodeURIComponent(row.dataset.id));
+        });
+      }
+
+      const statusSel = document.getElementById("fStatus");
+      ["Open", "Acknowledged", "Assigned", "Escalated-L1", "Escalated-L2", "Escalated-L3", "Escalated-L4", "Resolved", "Closed", "Withdrawn"].forEach(s => {
+        const o = document.createElement("option"); o.value = s; o.textContent = s; statusSel.appendChild(o);
+      });
+      [statusSel, document.getElementById("fSeverity")].forEach(el => el.addEventListener("change", renderRows));
+      document.getElementById("fSearch").addEventListener("input", renderRows);
+
+      renderStats();
+      renderRows();
+      setInterval(() => { renderStats(); renderRows(); }, 4000);
+    }
+  </script>
+</body>
+</html>

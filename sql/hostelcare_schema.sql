@@ -1,0 +1,318 @@
+-- =====================================================================
+-- HostelCare — Hostel Complaint Tracker & Escalation Matrix
+-- MySQL schema (matches SRS section 5.2 data model + the frontend's
+-- localStorage data model 1:1, so the JDBC layer maps straight across).
+--
+-- Target: MySQL 8.0+. Run as a user with CREATE/GRANT privileges:
+--   mysql -u root -p < hostelcare_schema.sql
+-- =====================================================================
+
+CREATE DATABASE IF NOT EXISTS hostelcare_db
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE hostelcare_db;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------------------
+-- Lookup tables
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS hostel_blocks;
+CREATE TABLE hostel_blocks (
+  block_name  VARCHAR(20) PRIMARY KEY
+) ENGINE=InnoDB;
+
+INSERT INTO hostel_blocks (block_name) VALUES
+  ('Block A'), ('Block B'), ('Block C'), ('Block D');
+
+DROP TABLE IF EXISTS categories;
+CREATE TABLE categories (
+  category_name VARCHAR(40) PRIMARY KEY
+) ENGINE=InnoDB;
+
+INSERT INTO categories (category_name) VALUES
+  ('Maintenance / Repair'), ('Electrical'), ('Plumbing / Water'),
+  ('Cleanliness / Hygiene'), ('Security'), ('Food / Mess'),
+  ('Internet / Wi-Fi'), ('Other');
+
+-- ---------------------------------------------------------------------
+-- SLA policy — response/resolution targets and escalation chain per
+-- severity (SRS section 6.3). Chain is normalized into its own table
+-- (3NF) instead of a JSON/CSV column.
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS sla_policies;
+CREATE TABLE sla_policies (
+  severity            ENUM('Low','Medium','High','Critical') PRIMARY KEY,
+  response_minutes     INT NOT NULL,
+  resolution_minutes   INT NOT NULL
+) ENGINE=InnoDB;
+
+INSERT INTO sla_policies (severity, response_minutes, resolution_minutes) VALUES
+  ('Low',       720,  4320),   -- 12h / 72h
+  ('Medium',    360,  2880),   -- 6h  / 48h
+  ('High',      120,  1440),   -- 2h  / 24h
+  ('Critical',   30,   360);   -- 30m / 6h
+
+DROP TABLE IF EXISTS sla_chain_steps;
+CREATE TABLE sla_chain_steps (
+  severity      ENUM('Low','Medium','High','Critical') NOT NULL,
+  level         TINYINT NOT NULL,
+  role          ENUM('maintenance_staff','warden','deputy_warden','chief_warden','dean','director') NOT NULL,
+  role_label    VARCHAR(60) NOT NULL,
+  PRIMARY KEY (severity, level),
+  FOREIGN KEY (severity) REFERENCES sla_policies(severity) ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+INSERT INTO sla_chain_steps (severity, level, role, role_label) VALUES
+  ('Low', 1, 'maintenance_staff', 'Maintenance Staff'),
+  ('Low', 2, 'warden',            'Warden'),
+
+  ('Medium', 1, 'warden',         'Warden'),
+  ('Medium', 2, 'deputy_warden',  'Assistant / Deputy Warden'),
+  ('Medium', 3, 'chief_warden',   'Chief Warden'),
+
+  ('High', 1, 'warden',           'Warden'),
+  ('High', 2, 'chief_warden',     'Chief Warden'),
+  ('High', 3, 'dean',             'Dean of Student Welfare'),
+
+  ('Critical', 1, 'warden',       'Warden + Security'),
+  ('Critical', 2, 'chief_warden', 'Chief Warden'),
+  ('Critical', 3, 'dean',         'Dean of Student Welfare'),
+  ('Critical', 4, 'director',     'Director / Principal');
+
+-- ---------------------------------------------------------------------
+-- Users / identity (B03). One active role per account, matching the
+-- frontend and RoleAssignment's practical scope. hostel_block is only
+-- meaningful for role='resident' or role='warden'.
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS users;
+CREATE TABLE users (
+  user_id        INT AUTO_INCREMENT PRIMARY KEY,
+  app_user_key   VARCHAR(50) NULL UNIQUE,          -- stable ID used by the existing HC.* frontend contract
+  name           VARCHAR(100) NOT NULL,
+  username       VARCHAR(30)  NOT NULL UNIQUE,   -- institutional ID, e.g. TY123456
+  password_hash  VARCHAR(255) NOT NULL,          -- prototype currently mirrors the frontend password value; hash in a later auth pass
+  email          VARCHAR(120),
+  role           ENUM('resident','maintenance_staff','warden','deputy_warden',
+                       'chief_warden','dean','director','admin') NOT NULL,
+  room_no        VARCHAR(15),
+  hostel_block   VARCHAR(20),
+  status         ENUM('active','suspended') NOT NULL DEFAULT 'active',
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (hostel_block) REFERENCES hostel_blocks(block_name) ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_block ON users(hostel_block);
+
+-- ---------------------------------------------------------------------
+-- Complaints — the core entity. complaint_id is a human-readable code
+-- (HC-<year>-<6 digits>) generated by the application layer.
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS complaints;
+CREATE TABLE complaints (
+  complaint_id      VARCHAR(20) PRIMARY KEY,
+  resident_id       INT NOT NULL,
+  category          VARCHAR(40) NOT NULL,
+  severity          ENUM('Low','Medium','High','Critical') NOT NULL,
+  hostel_block      VARCHAR(20) NOT NULL,
+  room_no           VARCHAR(15) NOT NULL,
+  description       TEXT NOT NULL,
+  evidence_name     VARCHAR(255),
+  status            ENUM('Open','Acknowledged','Assigned',
+                          'Escalated-L1','Escalated-L2','Escalated-L3','Escalated-L4',
+                          'Resolved','Closed','Withdrawn') NOT NULL DEFAULT 'Open',
+  level             TINYINT NOT NULL DEFAULT 1,
+  current_authority_role      ENUM('maintenance_staff','warden','deputy_warden','chief_warden','dean','director') NOT NULL,
+  acknowledged      BOOLEAN NOT NULL DEFAULT FALSE,
+  acknowledged_at   DATETIME NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  response_due      DATETIME NOT NULL,
+  resolution_due    DATETIME NOT NULL,
+  resolved_at       DATETIME NULL,
+  resolution_note   TEXT NULL,
+  breach_flag       BOOLEAN NOT NULL DEFAULT FALSE,
+  version           INT NOT NULL DEFAULT 1,          -- optimistic concurrency (SRS 5.3)
+  idempotency_key   VARCHAR(80) NOT NULL,
+
+  FOREIGN KEY (resident_id) REFERENCES users(user_id),
+  FOREIGN KEY (category) REFERENCES categories(category_name) ON UPDATE CASCADE,
+  FOREIGN KEY (hostel_block) REFERENCES hostel_blocks(block_name) ON UPDATE CASCADE,
+  FOREIGN KEY (severity) REFERENCES sla_policies(severity) ON UPDATE CASCADE,
+
+  UNIQUE KEY uq_idempotency (resident_id, idempotency_key)   -- FR-05
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_complaints_status ON complaints(status);
+CREATE INDEX idx_complaints_block ON complaints(hostel_block);
+CREATE INDEX idx_complaints_severity ON complaints(severity);
+CREATE INDEX idx_complaints_resolution_due ON complaints(resolution_due);   -- timer queue poll (B09)
+CREATE INDEX idx_complaints_current_authority_role ON complaints(current_authority_role);
+CREATE FULLTEXT INDEX idx_complaints_description ON complaints(description); -- FR-03 search
+
+-- ---------------------------------------------------------------------
+-- Assignments — maintenance staff queue (B07)
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS assignments;
+CREATE TABLE assignments (
+  assignment_id       INT AUTO_INCREMENT PRIMARY KEY,
+  app_assignment_key  VARCHAR(50) NULL UNIQUE,
+  complaint_id   VARCHAR(20) NOT NULL,
+  staff_id       INT NOT NULL,
+  assigned_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status         ENUM('active','reassigned') NOT NULL DEFAULT 'active',
+  FOREIGN KEY (complaint_id) REFERENCES complaints(complaint_id) ON DELETE CASCADE,
+  FOREIGN KEY (staff_id) REFERENCES users(user_id)
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_assignments_complaint ON assignments(complaint_id);
+CREATE INDEX idx_assignments_staff ON assignments(staff_id, status);
+
+-- ---------------------------------------------------------------------
+-- Escalation events — audit trail of every legal transition (B06)
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS escalation_events;
+CREATE TABLE escalation_events (
+  escalation_id         INT AUTO_INCREMENT PRIMARY KEY,
+  app_escalation_key    VARCHAR(50) NULL UNIQUE,
+  complaint_id      VARCHAR(20) NOT NULL,
+  level             TINYINT NOT NULL,
+  escalated_to_role ENUM('maintenance_staff','warden','deputy_warden','chief_warden','dean','director') NOT NULL,
+  reason            VARCHAR(255) NOT NULL,
+  triggered_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_manual         BOOLEAN NOT NULL DEFAULT FALSE,
+  actor_username    VARCHAR(30) NULL,        -- NULL when triggered by the automated timer queue
+  acknowledged      BOOLEAN NOT NULL DEFAULT FALSE,
+  ack_by            VARCHAR(30) NULL,
+  decision          VARCHAR(255) NULL,
+  decision_reason   TEXT NULL,
+  FOREIGN KEY (complaint_id) REFERENCES complaints(complaint_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_escalations_complaint ON escalation_events(complaint_id);
+
+-- ---------------------------------------------------------------------
+-- Resident feedback / reopen (FR-12)
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS feedback;
+CREATE TABLE feedback (
+  feedback_id       INT AUTO_INCREMENT PRIMARY KEY,
+  app_feedback_key  VARCHAR(50) NULL UNIQUE,
+  complaint_id   VARCHAR(20) NOT NULL,
+  resident_id    INT NOT NULL,
+  rating         TINYINT NULL CHECK (rating BETWEEN 1 AND 5),
+  reopened       BOOLEAN NOT NULL DEFAULT FALSE,
+  submitted_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (complaint_id) REFERENCES complaints(complaint_id) ON DELETE CASCADE,
+  FOREIGN KEY (resident_id) REFERENCES users(user_id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- Notifications (FR-09)
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS notifications;
+CREATE TABLE notifications (
+  notification_id      INT AUTO_INCREMENT PRIMARY KEY,
+  app_notification_key VARCHAR(50) NULL UNIQUE,
+  recipient_role    ENUM('resident','maintenance_staff','warden','deputy_warden','chief_warden','dean','director','admin') NOT NULL,
+  recipient_block   VARCHAR(20) NULL,
+  type              VARCHAR(40) NOT NULL,
+  payload           JSON NOT NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_read           BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (recipient_block) REFERENCES hostel_blocks(block_name) ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_notifications_role ON notifications(recipient_role, is_read);
+
+-- ---------------------------------------------------------------------
+-- Audit log (B11) — append-only; application should never UPDATE/DELETE
+-- rows here, only INSERT.
+-- ---------------------------------------------------------------------
+
+DROP TABLE IF EXISTS audit_events;
+CREATE TABLE audit_events (
+  audit_id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+  correlation_id   VARCHAR(60) NOT NULL,
+  actor            VARCHAR(80) NOT NULL,   -- "<role>:<username>" or "system"
+  action           VARCHAR(60) NOT NULL,
+  target           VARCHAR(60) NOT NULL,
+  outcome          VARCHAR(30) NOT NULL,
+  metadata         JSON NULL,
+  event_time       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_audit_correlation ON audit_events(correlation_id);
+CREATE INDEX idx_audit_time ON audit_events(event_time);
+
+-- ---------------------------------------------------------------------
+-- Convenience view for analytics (FR-13)
+-- ---------------------------------------------------------------------
+
+CREATE OR REPLACE VIEW v_complaint_summary AS
+SELECT
+  hostel_block,
+  severity,
+  status,
+  COUNT(*) AS complaint_count,
+  SUM(CASE WHEN status IN ('Resolved','Closed') THEN 1 ELSE 0 END) AS resolved_count,
+  SUM(CASE WHEN status LIKE 'Escalated%' THEN 1 ELSE 0 END) AS escalated_count,
+  SUM(CASE WHEN breach_flag = 1 THEN 1 ELSE 0 END) AS breached_count
+FROM complaints
+GROUP BY hostel_block, severity, status;
+
+-- =====================================================================
+-- Seed data — mirrors the demo accounts in the frontend.
+--
+-- The current prototype still performs password comparison in js/api.js, so
+-- these demo values are stored as-is for compatibility. Moving authentication
+-- into Java and replacing these values with salted hashes is intentionally a
+-- separate security/backend change.
+-- =====================================================================
+
+INSERT INTO users (app_user_key, name, username, password_hash, email, role, room_no, hostel_block, status) VALUES
+  ('u_admin',   'Admin Office',        'AD900001', 'admin123',    'admin@hostelcare.edu',    'admin',             NULL,    NULL,      'active'),
+  ('u_res1',    'Rahul Sharma',        'TY123456', 'resident123', 'rahul@college.edu',       'resident',          'B-204', 'Block B', 'active'),
+  ('u_res2',    'Ananya Iyer',         'TY123457', 'resident123', 'ananya@college.edu',      'resident',          'A-110', 'Block A', 'active'),
+  ('u_staff1',  'Suresh Patil',        'ST200001', 'staff123',    'suresh@hostelcare.edu',   'maintenance_staff', NULL,    NULL,      'active'),
+  ('u_staff2',  'Meena Kulkarni',      'ST200002', 'staff123',    'meena@hostelcare.edu',    'maintenance_staff', NULL,    NULL,      'active'),
+  ('u_ward_a',  'Prakash Rane',        'WD300001', 'warden123',   'prakash@hostelcare.edu',  'warden',            NULL,    'Block A', 'active'),
+  ('u_ward_b',  'Sunita Deshmukh',     'WD300002', 'warden123',   'sunita@hostelcare.edu',   'warden',            NULL,    'Block B', 'active'),
+  ('u_dep1',    'Kiran Joshi',         'WD400001', 'warden123',   'kiran@hostelcare.edu',    'deputy_warden',     NULL,    NULL,      'active'),
+  ('u_chief1',  'Dr. Vikram Nair',     'WD500001', 'warden123',   'vikram@hostelcare.edu',   'chief_warden',      NULL,    NULL,      'active'),
+  ('u_dean1',   'Dr. Leela Menon',     'WD600001', 'warden123',   'leela@hostelcare.edu',    'dean',              NULL,    NULL,      'active'),
+  ('u_dir1',    'Dr. A. Fernandes',    'WD700001', 'warden123',   'fernandes@hostelcare.edu','director',          NULL,    NULL,      'active');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =====================================================================
+-- LAN access — run separately on the MySQL server host once the schema
+-- above is loaded. This creates an application account reachable over
+-- TCP from other lab machines (adjust the IP range/host to your subnet
+-- instead of '%' once you know it, and make sure mysqld's bind-address
+-- in /etc/mysql/mysql.conf.d/mysqld.cnf is not left at 127.0.0.1).
+-- =====================================================================
+
+-- CREATE USER 'hostelcare_app'@'%' IDENTIFIED BY 'change_this_password';
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON hostelcare_db.* TO 'hostelcare_app'@'%';
+-- FLUSH PRIVILEGES;
+
+-- =====================================================================
+-- Persistence note
+-- =====================================================================
+-- HostelCareServer.java maps the existing HC.* browser contract directly to
+-- the normalized tables above. JSON is used only while values cross HTTP; no
+-- app_state/key-value JSON table is part of the current storage design.
+--
+-- When upgrading from the previous persistence patch, the Java server detects
+-- an old app_state table, imports its collections into these relational tables
+-- transactionally, and drops app_state only after a successful migration.
+

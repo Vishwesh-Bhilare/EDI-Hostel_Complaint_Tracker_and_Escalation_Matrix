@@ -1,49 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HostelCare | Login</title>
-  <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Login</title>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body class="auth-page">
-  <main class="auth-shell">
-    <section class="brand-panel">
-      <div class="brand-mark">HC</div>
-      <p class="eyebrow">HOSTEL MANAGEMENT</p>
-      <h1>HostelCare</h1>
-      <p class="brand-copy">Hostel Complaint Tracker &amp; Escalation Matrix</p>
-      <div class="feature-list">
-        <div><span>✓</span><div><strong>Track every complaint</strong><small>From submission to resolution.</small></div></div>
-        <div><span>✓</span><div><strong>Automatic escalation</strong><small>SLA-driven escalation when deadlines are breached.</small></div></div>
-        <div><span>✓</span><div><strong>Role-based access</strong><small>Students, staff and authorities see the right information.</small></div></div>
+<main class="auth-shell">
+  <section class="brand-panel">
+    <div class="brand-mark">HC</div>
+    <p class="eyebrow">HOSTEL MANAGEMENT</p>
+    <h1>HostelCare</h1>
+    <p class="brand-copy">Hostel Complaint Tracker &amp; Escalation Matrix</p>
+    <div class="feature-list">
+      <div><span>✓</span><div><strong>Track every complaint</strong><small>From submission to resolution.</small></div></div>
+      <div><span>✓</span><div><strong>Automatic escalation</strong><small>SLA-driven escalation when deadlines are breached.</small></div></div>
+      <div><span>✓</span><div><strong>Role-based access</strong><small>Residents, staff and authorities see the right information.</small></div></div>
+    </div>
+  </section>
+  <section class="auth-card-wrap">
+    <form class="auth-card" id="loginForm">
+      <div class="mobile-brand"><div class="brand-mark">HC</div><strong>HostelCare</strong></div>
+      <p class="eyebrow">SECURE LOGIN</p>
+      <h2>Welcome back</h2>
+      <p class="muted">Sign in to submit and track hostel complaints.</p>
+      <label for="loginId">Institutional ID / Username</label>
+      <input id="loginId" name="loginId" type="text" placeholder="e.g. TY123456" autocomplete="username" required>
+      <div class="field-error" id="loginIdError"></div>
+      <label for="loginPassword">Password</label>
+      <div class="password-field">
+        <input id="loginPassword" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
+        <button type="button" class="password-toggle" data-target="loginPassword" aria-label="Show password">Show</button>
       </div>
-    </section>
-    <section class="auth-card-wrap">
-      <form class="auth-card" id="loginForm">
-        <div class="mobile-brand"><div class="brand-mark">HC</div><strong>HostelCare</strong></div>
-        <p class="eyebrow">SECURE LOGIN</p>
-        <h2>Welcome back</h2>
-        <p class="muted">Sign in to submit and track hostel complaints.</p>
-        <label for="loginId">Institutional ID / Username</label>
-        <input id="loginId" name="loginId" type="text" placeholder="e.g. TY123456" autocomplete="username" required>
-        <div class="field-error" id="loginIdError"></div>
-        <label for="loginPassword">Password</label>
-        <div class="password-field">
-          <input id="loginPassword" name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required>
-          <button type="button" class="password-toggle" data-target="loginPassword" aria-label="Show password">Show</button>
-        </div>
-        <div class="field-error" id="loginPasswordError"></div>
-        <div class="form-row">
-          <label class="check-label"><input type="checkbox" id="remember"> <span>Remember me</span></label>
-          <a href="#" class="text-link" onclick="alert('Password reset can be connected to your backend later.'); return false;">Forgot password?</a>
-        </div>
-        <button class="primary-btn" type="submit">LOGIN <span>→</span></button>
-        <p class="center muted">Don't have an account? <a class="text-link" href="signup.html">Create account</a></p>
-        <div class="security-note"><span>🔒</span><div><strong>Secure access</strong><small>Authenticated sessions and role-based authorization.</small></div></div>
-      </form>
-    </section>
-  </main>
-  <script src="script.js"></script>
+      <div class="field-error" id="loginPasswordError"></div>
+      <div class="form-row">
+        <label class="check-label"><input type="checkbox" id="remember"> <span>Remember me</span></label>
+        <a href="#" class="text-link" id="demoLink">Demo accounts</a>
+      </div>
+      <button class="primary-btn" type="submit">LOGIN <span>→</span></button>
+      <p class="center muted">Don't have an account? <a class="text-link" href="signup.html">Create account</a></p>
+      <div class="security-note"><span>🔒</span><div><strong>Secure access</strong><small>Authenticated sessions and role-based authorization.</small></div></div>
+    </form>
+  </section>
+</main>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const existing = HC.getSession();
+  if (existing) window.location.href = HCUI.dashboardFor(existing.role);
+
+  document.querySelectorAll(".password-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById(btn.dataset.target);
+      const isText = input.type === "text";
+      input.type = isText ? "password" : "text";
+      btn.textContent = isText ? "Show" : "Hide";
+    });
+  });
+
+  document.getElementById("loginForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("loginId").value.trim();
+    const pw = document.getElementById("loginPassword").value;
+    document.getElementById("loginIdError").textContent = id ? "" : "Please enter your institutional ID.";
+    document.getElementById("loginPasswordError").textContent = pw ? "" : "Please enter your password.";
+    if (!id || !pw) return;
+    const result = HC.AUTH_LOGIN(id, pw);
+    if (!result.ok) {
+      document.getElementById("loginPasswordError").textContent = result.message;
+      return;
+    }
+    window.location.href = HCUI.dashboardFor(result.session.role);
+  });
+
+  document.getElementById("demoLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    HCUI.openModal("Demo accounts", `
+      <p class="small-muted" style="margin-bottom:12px">Every account uses these seeded credentials. Click a row's ID to autofill it.</p>
+      <table class="hc-table"><thead><tr><th>Role</th><th>Institutional ID</th><th>Password</th></tr></thead><tbody>
+        <tr data-id="TY123456"><td>Resident (Block B)</td><td>TY123456</td><td>resident123</td></tr>
+        <tr data-id="ST200001"><td>Maintenance Staff</td><td>ST200001</td><td>staff123</td></tr>
+        <tr data-id="WD300002"><td>Warden (Block B)</td><td>WD300002</td><td>warden123</td></tr>
+        <tr data-id="WD400001"><td>Assistant / Deputy Warden</td><td>WD400001</td><td>warden123</td></tr>
+        <tr data-id="WD500001"><td>Chief Warden</td><td>WD500001</td><td>warden123</td></tr>
+        <tr data-id="WD600001"><td>Dean of Student Welfare</td><td>WD600001</td><td>warden123</td></tr>
+        <tr data-id="WD700001"><td>Director / Principal</td><td>WD700001</td><td>warden123</td></tr>
+        <tr data-id="AD900001"><td>Administrator</td><td>AD900001</td><td>admin123</td></tr>
+      </tbody></table>
+    `);
+    document.querySelectorAll("#hcModal tbody tr").forEach(row => {
+      row.style.cursor = "pointer";
+      row.addEventListener("click", () => {
+        document.getElementById("loginId").value = row.dataset.id;
+        document.getElementById("loginPassword").value = row.cells[2].textContent;
+        HCUI.closeModalGeneric();
+      });
+    });
+  });
+});
+</script>
 </body>
 </html>

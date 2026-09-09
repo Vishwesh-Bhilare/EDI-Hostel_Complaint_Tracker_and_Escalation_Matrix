@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostelCare | Authority Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="app-page">
+  <header class="topbar" id="topbar"></header>
+  <main class="app-main">
+    <div class="breadcrumb">Dashboard</div>
+    <div class="heading-row">
+      <div>
+        <p class="eyebrow" id="roleEyebrow">AUTHORITY</p>
+        <h1 id="pageTitle">Complaints</h1>
+        <p class="muted" id="subLine"></p>
+      </div>
+    </div>
+
+    <div class="dash-stats" id="statCards"></div>
+
+    <div class="tab-row" id="tabRow">
+      <button class="tab-btn active" data-tab="action">Needs my action</button>
+      <button class="tab-btn" data-tab="all">All complaints</button>
+    </div>
+
+    <div class="toolbar">
+      <div class="filters">
+        <select id="fBlock"><option value="">All blocks</option><option>Block A</option><option>Block B</option><option>Block C</option><option>Block D</option></select>
+        <select id="fSeverity"><option value="">All severities</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
+        <select id="fStatus"><option value="">All statuses</option></select>
+        <input type="text" id="fSearch" placeholder="Search description or complaint ID">
+      </div>
+    </div>
+
+    <div class="table-card">
+      <table class="hc-table">
+        <thead><tr><th>Complaint ID</th><th>Category</th><th>Severity</th><th>Block / Room</th><th>Level</th><th>Status</th><th>Resolution due</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    const session = HCUI.requireRole(["warden", "deputy_warden", "chief_warden", "dean", "director", "admin"]);
+    let activeTab = "action";
+    if (session) {
+      HCUI.renderTopbar(session);
+      document.getElementById("roleEyebrow").textContent = HC.ROLE_LABELS[session.role].toUpperCase();
+      document.getElementById("pageTitle").textContent = session.role === "warden" ? session.hostel_block + " complaints" : "Escalation queue";
+      document.getElementById("subLine").textContent = session.role === "warden" ? "Complaints raised in your hostel block." : "Complaints across all hostel blocks that reach your level of authority.";
+      if (session.role === "warden") {
+        const blockSel = document.getElementById("fBlock");
+        blockSel.value = session.hostel_block;
+        blockSel.disabled = true;
+      }
+
+      const statusSel = document.getElementById("fStatus");
+      ["Open", "Acknowledged", "Assigned", "Escalated-L1", "Escalated-L2", "Escalated-L3", "Escalated-L4", "Resolved", "Closed", "Withdrawn"].forEach(s => {
+        const o = document.createElement("option"); o.value = s; o.textContent = s; statusSel.appendChild(o);
+      });
+
+      function renderStats() {
+        const s = HC.ANALYTICS_SUMMARY(session);
+        document.getElementById("statCards").innerHTML = `
+          <div class="stat-card accent"><span>Total in scope</span><strong>${s.total}</strong></div>
+          <div class="stat-card"><span>Open / in progress</span><strong>${s.open}</strong></div>
+          <div class="stat-card"><span>Escalated</span><strong>${s.escalated}</strong></div>
+          <div class="stat-card"><span>SLA compliance</span><strong>${s.complianceRate}%</strong></div>`;
+      }
+
+      function needsMyAction(c) {
+        if (["Resolved", "Closed", "Withdrawn"].includes(c.status)) return false;
+        if (session.role === "admin") return true;
+        const atMyLevel = session.role === "warden" ? (c.current_role === "warden" && c.hostel_block === session.hostel_block) : c.current_role === session.role;
+        return atMyLevel;
+      }
+
+      function renderRows() {
+        const filters = {
+          hostel_block: document.getElementById("fBlock").value || undefined,
+          severity: document.getElementById("fSeverity").value || undefined,
+          status: document.getElementById("fStatus").value || undefined,
+          q: document.getElementById("fSearch").value || undefined,
+        };
+        let list = HC.COMPLAINT_LIST(session, filters);
+        if (activeTab === "action") list = list.filter(needsMyAction);
+        const body = document.getElementById("rows");
+        if (!list.length) { body.innerHTML = `<tr class="empty-row"><td colspan="7">Nothing to show here.</td></tr>`; return; }
+        body.innerHTML = list.map(c => {
+          const cd = HCUI.countdown(c.resolution_due);
+          const closedOut = ["Resolved", "Closed", "Withdrawn"].includes(c.status);
+          const due = closedOut ? "—" : `${cd.overdue ? "Overdue by " : "in "}${cd.label}`;
+          return `<tr data-id="${c.complaint_id}">
+            <td><strong>${c.complaint_id}</strong></td>
+            <td>${HCUI.esc(c.category)}</td>
+            <td><span class="sev-tag ${HCUI.severityBadgeClass(c.severity)}">${c.severity}</span></td>
+            <td>${c.hostel_block} · ${HCUI.esc(c.room_no)}</td>
+            <td>L${c.level} · ${HC.ROLE_LABELS[c.current_role]}</td>
+            <td><span class="badge ${HCUI.statusBadgeClass(c.status)}">${c.status}</span></td>
+            <td>${due}</td>
+          </tr>`;
+        }).join("");
+        body.querySelectorAll("tr[data-id]").forEach(row => {
+          row.addEventListener("click", () => window.location.href = "complaint-detail.html?id=" + encodeURIComponent(row.dataset.id));
+        });
+      }
+
+      document.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          activeTab = btn.dataset.tab;
+          renderRows();
+        });
+      });
+      [document.getElementById("fBlock"), document.getElementById("fSeverity"), statusSel].forEach(el => el.addEventListener("change", renderRows));
+      document.getElementById("fSearch").addEventListener("input", renderRows);
+
+      renderStats(); renderRows();
+      setInterval(() => { renderStats(); renderRows(); }, 4000);
+    }
+  </script>
+</body>
+</html>
