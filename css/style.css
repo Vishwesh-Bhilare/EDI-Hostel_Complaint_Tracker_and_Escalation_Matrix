@@ -1,0 +1,138 @@
+:root {
+  --navy: #1F3A5F;
+  --navy-dark: #16293F;
+  --teal: #2D6E63;
+  --bg: #F4F5F3;
+  --card: #FFFFFF;
+  --ink: #202A33;
+  --ink-soft: #5B6670;
+  --line: #E1E4E1;
+
+  --priority-high: #C0392B;
+  --priority-high-bg: #FBEAE8;
+  --priority-moderate: #B8710A;
+  --priority-moderate-bg: #FBF0DE;
+  --priority-low: #2F7D4F;
+  --priority-low-bg: #E8F3EC;
+  --priority-undetermined: #5B6670;
+  --priority-undetermined-bg: #ECEDEB;
+
+  --status-pending: #6B7280;
+  --status-assigned: #1F3A5F;
+  --status-review: #B8710A;
+  --status-resolved: #2F7D4F;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+.hct-topbar {
+  background: var(--navy);
+  color: #fff;
+}
+
+.hct-topbar .brand {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.hct-topbar .role-tag {
+  font-size: 0.8rem;
+  color: #C9D5E3;
+}
+
+.hct-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.hct-account-card {
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.hct-account-card:hover {
+  border-color: var(--navy);
+  transform: translateY(-1px);
+}
+
+.badge-priority {
+  font-weight: 500;
+  font-size: 0.75rem;
+  padding: 0.3em 0.65em;
+  border-radius: 999px;
+}
+.badge-priority.p-high { color: var(--priority-high); background: var(--priority-high-bg); }
+.badge-priority.p-moderate { color: var(--priority-moderate); background: var(--priority-moderate-bg); }
+.badge-priority.p-low { color: var(--priority-low); background: var(--priority-low-bg); }
+.badge-priority.p-undetermined { color: var(--priority-undetermined); background: var(--priority-undetermined-bg); }
+
+.badge-status {
+  font-weight: 500;
+  font-size: 0.75rem;
+  padding: 0.3em 0.65em;
+  border-radius: 6px;
+  color: #fff;
+}
+.badge-status.st-pending { background: var(--status-pending); }
+.badge-status.st-assigned { background: var(--status-assigned); }
+.badge-status.st-review { background: var(--status-review); }
+.badge-status.st-resolved { background: var(--status-resolved); }
+
+.complaint-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.complaint-row .title {
+  font-weight: 500;
+}
+
+.complaint-row .meta {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.btn-navy {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn-navy:hover {
+  background: var(--navy-dark);
+  border-color: var(--navy-dark);
+  color: #fff;
+}
+
+.btn-teal {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+.btn-teal:hover {
+  filter: brightness(0.92);
+  color: #fff;
+}
+
+.empty-state {
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 2.5rem 1rem;
+}
+
+.nav-pills .nav-link.active {
+  background: var(--navy);
+}
+
+.history-item {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--line);
+  padding-left: 0.75rem;
+  margin-bottom: 0.5rem;
+}
