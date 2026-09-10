@@ -15,16 +15,23 @@ const CATEGORIES = {
 
 const PRIORITY_ORDER = { "High": 0, "Moderate": 1, "Undetermined": 2, "Low": 3 };
 
+const HOSTEL_BLOCKS = ["Devgiri Boys Hostel", "Godavari Girls Hostel"];
+
 const USERS = [
-  { id: "s1", name: "Tushar", role: "student", room: "B-204" },
-  { id: "s2", name: "Mahesh", role: "student", room: "B-118" },
+  { id: "s1", name: "Tushar", role: "student", room: "B-204", prn: "B24CE1001", email: "tushar@mmcoe.edu.in" },
+  { id: "s2", name: "Mahesh", role: "student", room: "B-118", prn: "B24CE1002", email: "mahesh@mmcoe.edu.in" },
   { id: "w1", name: "Warden A", role: "warden" },
   { id: "m1", name: "Maintenance Staff A", role: "maintenance" },
-  { id: "m2", name: "Maintenance Staff B", role: "maintenance" }
+  { id: "m2", name: "Maintenance Staff B", role: "maintenance" },
+  { id: "a1", name: "Admin", role: "admin" }
 ];
 
 function getUser(id) {
   return USERS.find(u => u.id === id) || null;
+}
+
+function getUserByPrnOrEmail(identifier) {
+  return USERS.find(u => u.prn === identifier || u.email === identifier) || null;
 }
 
 function usersByRole(role) {
@@ -36,9 +43,16 @@ function nextComplaintId() {
   return "C" + String(_nextId++).padStart(4, "0");
 }
 
+function nextRegistrationId() {
+  return "REG" + String(Math.random()).slice(2, 8);
+}
+
 function nowStamp() {
   return new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
+
+/* Pending registrations: { id, name, prn, email, password, block, requestedAt, status: "pending" } */
+let PENDING_REGISTRATIONS = [];
 
 /* status values: "Pending" | "Assigned" | "Under Review" | "Resolved" */
 let COMPLAINTS = [];
@@ -114,6 +128,54 @@ function seedComplaints() {
   ];
 }
 seedComplaints();
+
+function submitRegistration({ name, prn, email, password, block }) {
+  const reg = {
+    id: nextRegistrationId(),
+    name,
+    prn,
+    email,
+    password,
+    block,
+    requestedAt: nowStamp(),
+    status: "pending"
+  };
+  PENDING_REGISTRATIONS.push(reg);
+  return reg;
+}
+
+function approveRegistration(regId, roomAssignment) {
+  const reg = PENDING_REGISTRATIONS.find(r => r.id === regId);
+  if (!reg) return null;
+  
+  const userId = "s" + (USERS.filter(u => u.role === "student").length + 1);
+  const newUser = {
+    id: userId,
+    name: reg.name,
+    role: "student",
+    prn: reg.prn,
+    email: reg.email,
+    password: reg.password,
+    block: reg.block,
+    room: roomAssignment || "TBD"
+  };
+  
+  USERS.push(newUser);
+  reg.status = "approved";
+  PENDING_REGISTRATIONS = PENDING_REGISTRATIONS.filter(r => r.id !== regId);
+  return newUser;
+}
+
+function rejectRegistration(regId, reason) {
+  const reg = PENDING_REGISTRATIONS.find(r => r.id === regId);
+  if (!reg) return;
+  reg.status = "rejected";
+  reg.rejectionReason = reason || "Rejected by admin";
+}
+
+function getPendingRegistrations() {
+  return PENDING_REGISTRATIONS.filter(r => r.status === "pending");
+}
 
 function addComplaint({ title, category, description, photo, studentId }) {
   const c = {
