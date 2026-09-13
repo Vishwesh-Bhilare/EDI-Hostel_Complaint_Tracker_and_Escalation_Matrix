@@ -115,24 +115,24 @@ function attachWardenHandlers() {
 
   const confirmBtn = document.getElementById("assignConfirm");
   if (confirmBtn) {
-    confirmBtn.addEventListener("click", () => {
+    confirmBtn.addEventListener("click", async () => {
       const maintenanceId = document.getElementById("assignSelect").value;
-      assignComplaint(_assignTargetId, maintenanceId, currentUser.id);
+      await assignComplaint(_assignTargetId, maintenanceId, currentUser.id);
       modal.hide();
       render();
     });
   }
 
   document.querySelectorAll("[data-resolve]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      resolveComplaint(btn.getAttribute("data-resolve"), currentUser.id);
+    btn.addEventListener("click", async () => {
+      await resolveComplaint(btn.getAttribute("data-resolve"), currentUser.id);
       render();
     });
   });
 
   document.querySelectorAll("[data-reassign]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      reassignComplaint(btn.getAttribute("data-reassign"), currentUser.id);
+    btn.addEventListener("click", async () => {
+      await reassignComplaint(btn.getAttribute("data-reassign"), currentUser.id);
       render();
     });
   });

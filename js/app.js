@@ -283,7 +283,7 @@ function attachLoginHandlers() {
 }
 
 function attachSignupHandlers() {
-  document.getElementById("sigSubmitBtn").addEventListener("click", () => {
+  document.getElementById("sigSubmitBtn").addEventListener("click", async () => {
     const name = document.getElementById("sigName").value.trim();
     const prn = document.getElementById("sigPrn").value.trim();
     const email = document.getElementById("sigEmail").value.trim();
@@ -303,7 +303,14 @@ function attachSignupHandlers() {
       return;
     }
 
-    submitRegistration({ name, prn, email, password, block });
+    try {
+      await submitRegistration({ name, prn, email, password, block });
+    } catch (err) {
+      errorEl.textContent = "Could not submit registration: " + err.message;
+      errorEl.style.setProperty("display", "block", "important");
+      return;
+    }
+
     errorEl.textContent = "";
     errorEl.style.setProperty("display", "none", "important");
 
@@ -341,4 +348,20 @@ function attachViewHandlers() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", render);
+document.addEventListener("DOMContentLoaded", async () => {
+  const root = document.getElementById("app");
+  root.innerHTML = `<div class="container py-5 text-center"><p>Loading...</p></div>`;
+  try {
+    await initData();
+  } catch (err) {
+    root.innerHTML = `
+      <div class="container py-5 text-center" style="max-width: 480px;">
+        <h5>Could not reach the backend</h5>
+        <p class="small" style="color: var(--ink-soft);">${escapeHtml(err.message)}</p>
+        <p class="small" style="color: var(--ink-soft);">Make sure the Java server is running and MySQL is reachable, then reload.</p>
+      </div>
+    `;
+    return;
+  }
+  render();
+});

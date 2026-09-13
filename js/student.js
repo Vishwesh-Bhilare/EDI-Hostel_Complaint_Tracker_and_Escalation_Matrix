@@ -113,7 +113,7 @@ function attachStudentHandlers() {
     reader.readAsDataURL(file);
   });
 
-  document.getElementById("ncSubmit").addEventListener("click", () => {
+  document.getElementById("ncSubmit").addEventListener("click", async () => {
     const title = document.getElementById("ncTitle").value.trim();
     const category = document.getElementById("ncCategory").value;
     const description = document.getElementById("ncDescription").value.trim();
@@ -125,7 +125,13 @@ function attachStudentHandlers() {
       return;
     }
 
-    addComplaint({ title, category, description, photo: _newComplaintPhoto, studentId: currentUser.id });
+    try {
+      await addComplaint({ title, category, description, photo: _newComplaintPhoto, studentId: currentUser.id });
+    } catch (err) {
+      errorEl.textContent = "Could not submit complaint: " + err.message;
+      errorEl.style.setProperty("display", "block", "important");
+      return;
+    }
     modal.hide();
     render();
   });

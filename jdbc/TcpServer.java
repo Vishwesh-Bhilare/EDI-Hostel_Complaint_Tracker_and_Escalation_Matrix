@@ -20,7 +20,9 @@ public class TcpServer {
         }
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("HostelCare JSON-to-SQL server listening on port " + port);
+            System.out.println("HostelCare server listening on port " + port);
+            System.out.println("Open http://localhost:" + port + "/ in your browser.");
+            System.out.println("(Frontend static files and the /api JSON endpoint are both served here.)");
             while (true) {
                 Socket clientSocket = serverSocket.accept();
                 new Thread(new RequestHandler(clientSocket)).start();

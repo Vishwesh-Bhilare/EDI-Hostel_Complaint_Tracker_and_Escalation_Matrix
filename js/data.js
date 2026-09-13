@@ -1,6 +1,14 @@
-/* Mock in-memory data store.
-   No backend yet — everything here resets on page refresh.
-   When the MySQL backend is added, these functions are the layer to swap out. */
+/* Backend-backed data store.
+   Same function names/signatures as the old in-memory mock, so
+   app.js/student.js/warden.js/maintenance.js/admin.js didn't need to change.
+   USERS / COMPLAINTS / PENDING_REGISTRATIONS are loaded from MySQL (via
+   js/api.js) on startup, kept in memory for instant re-renders, and pushed
+   back to the backend whenever a mutating function below is called.
+
+   Note: complaint photos are captured client-side as base64 data URLs, but
+   the schema's photo/completion_photo columns are VARCHAR(255) (meant for a
+   file path, not image bytes), so photos are intentionally NOT sent to the
+   backend here — they stay visible only for the current browser session. */
 
 const CATEGORIES = {
   "Maintenance": "Low",
@@ -17,14 +25,9 @@ const PRIORITY_ORDER = { "High": 0, "Moderate": 1, "Undetermined": 2, "Low": 3 }
 
 const HOSTEL_BLOCKS = ["Devgiri Boys Hostel", "Godavari Girls Hostel"];
 
-const USERS = [
-  { id: "s1", name: "Tushar", role: "student", room: "B-204", prn: "B24CE1001", email: "tushar@mmcoe.edu.in" },
-  { id: "s2", name: "Mahesh", role: "student", room: "B-118", prn: "B24CE1002", email: "mahesh@mmcoe.edu.in" },
-  { id: "w1", name: "Warden A", role: "warden" },
-  { id: "m1", name: "Maintenance Staff A", role: "maintenance" },
-  { id: "m2", name: "Maintenance Staff B", role: "maintenance" },
-  { id: "a1", name: "Admin", role: "admin" }
-];
+let USERS = [];
+let PENDING_REGISTRATIONS = [];
+let COMPLAINTS = [];
 
 function getUser(id) {
   return USERS.find(u => u.id === id) || null;
@@ -38,105 +41,79 @@ function usersByRole(role) {
   return USERS.filter(u => u.role === role);
 }
 
-let _nextId = 1;
-function nextComplaintId() {
-  return "C" + String(_nextId++).padStart(4, "0");
-}
-
-function nextRegistrationId() {
-  return "REG" + String(Math.random()).slice(2, 8);
-}
-
 function nowStamp() {
   return new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
-/* Pending registrations: { id, name, prn, email, password, block, requestedAt, status: "pending" } */
-let PENDING_REGISTRATIONS = [];
+// ---------------- Initial load from the backend ----------------
 
-/* status values: "Pending" | "Assigned" | "Under Review" | "Resolved" */
-let COMPLAINTS = [];
-
-function seedComplaints() {
-  COMPLAINTS = [
-    {
-      id: nextComplaintId(),
-      title: "Leaking tap in common washroom",
-      category: "Plumbing/Water",
-      priority: "High",
-      description: "The tap near the second-floor washroom has been leaking since yesterday night.",
-      photo: null,
-      status: "Assigned",
-      studentId: "s1",
-      assignedTo: "m1",
-      createdAt: nowStamp(),
-      history: [
-        { at: nowStamp(), text: "Complaint submitted by Tushar" },
-        { at: nowStamp(), text: "Assigned to Maintenance Staff A by Warden A" }
-      ]
-    },
-    {
-      id: nextComplaintId(),
-      title: "WiFi not working on 3rd floor",
-      category: "Internet/WiFi",
-      priority: "Low",
-      description: "No WiFi signal in rooms 301 to 310 since this morning.",
-      photo: null,
-      status: "Pending",
-      studentId: "s2",
-      assignedTo: null,
-      createdAt: nowStamp(),
-      history: [
-        { at: nowStamp(), text: "Complaint submitted by Mahesh" }
-      ]
-    },
-    {
-      id: nextComplaintId(),
-      title: "Corridor light flickering",
-      category: "Electrical",
-      priority: "Moderate",
-      description: "The tube light outside room B-204 flickers constantly at night.",
-      photo: null,
-      status: "Under Review",
-      studentId: "s1",
-      assignedTo: "m2",
-      createdAt: nowStamp(),
-      history: [
-        { at: nowStamp(), text: "Complaint submitted by Tushar" },
-        { at: nowStamp(), text: "Assigned to Maintenance Staff B by Warden A" },
-        { at: nowStamp(), text: "Marked done by Maintenance Staff B, awaiting warden review" }
-      ]
-    },
-    {
-      id: nextComplaintId(),
-      title: "Mess food quality complaint",
-      category: "Food/Mess",
-      priority: "Moderate",
-      description: "Rice was undercooked at dinner for the past two days.",
-      photo: null,
-      status: "Resolved",
-      studentId: "s2",
-      assignedTo: "m1",
-      createdAt: nowStamp(),
-      history: [
-        { at: nowStamp(), text: "Complaint submitted by Mahesh" },
-        { at: nowStamp(), text: "Assigned to Maintenance Staff A by Warden A" },
-        { at: nowStamp(), text: "Marked done by Maintenance Staff A, awaiting warden review" },
-        { at: nowStamp(), text: "Marked resolved by Warden A" }
-      ]
-    }
-  ];
+async function loadUsers() {
+  const res = await API.select("users");
+  USERS = res.rows.map(r => ({
+    id: String(r.id),
+    name: r.name,
+    role: r.role,
+    prn: r.prn,
+    email: r.email,
+    password: r.password,
+    block: r.block,
+    room: r.room
+  }));
 }
-seedComplaints();
 
-function submitRegistration({ name, prn, email, password, block }) {
+async function loadComplaints() {
+  const [complaintsRes, historyRes] = await Promise.all([
+    API.select("complaints"),
+    API.select("complaint_history")
+  ]);
+
+  const historyByComplaint = {};
+  historyRes.rows.forEach(h => {
+    const key = String(h.complaint_id);
+    (historyByComplaint[key] = historyByComplaint[key] || []).push({ at: h.created_at, text: h.note });
+  });
+
+  COMPLAINTS = complaintsRes.rows.map(r => ({
+    id: String(r.id),
+    title: r.title,
+    category: r.category,
+    priority: r.priority,
+    description: r.description,
+    photo: null, // see note at top of file — not persisted, so not reloaded either
+    completionPhoto: null,
+    status: r.status,
+    studentId: String(r.student_id),
+    assignedTo: r.assigned_to != null ? String(r.assigned_to) : null,
+    createdAt: r.created_at,
+    history: historyByComplaint[String(r.id)] || []
+  }));
+}
+
+async function loadPendingRegistrations() {
+  const res = await API.select("pending_registrations", { where: { status: "pending" } });
+  PENDING_REGISTRATIONS = res.rows.map(r => ({
+    id: String(r.id),
+    name: r.name,
+    prn: r.prn,
+    email: r.email,
+    password: r.password,
+    block: r.block,
+    requestedAt: r.requested_at,
+    status: r.status
+  }));
+}
+
+async function initData() {
+  await Promise.all([loadUsers(), loadComplaints(), loadPendingRegistrations()]);
+}
+
+// ---------------- Registration ----------------
+
+async function submitRegistration({ name, prn, email, password, block }) {
+  const res = await API.insert("pending_registrations", { name, prn, email, password, block, status: "pending" });
   const reg = {
-    id: nextRegistrationId(),
-    name,
-    prn,
-    email,
-    password,
-    block,
+    id: String(res.insertedId),
+    name, prn, email, password, block,
     requestedAt: nowStamp(),
     status: "pending"
   };
@@ -144,85 +121,116 @@ function submitRegistration({ name, prn, email, password, block }) {
   return reg;
 }
 
-function approveRegistration(regId, roomAssignment) {
+async function approveRegistration(regId, roomAssignment) {
   const reg = PENDING_REGISTRATIONS.find(r => r.id === regId);
   if (!reg) return null;
-  
-  const userId = "s" + (USERS.filter(u => u.role === "student").length + 1);
+
+  const room = roomAssignment || "TBD";
+  const res = await API.insert("users", {
+    name: reg.name, role: "student", prn: reg.prn, email: reg.email,
+    password: reg.password, block: reg.block, room
+  });
+
   const newUser = {
-    id: userId,
-    name: reg.name,
-    role: "student",
-    prn: reg.prn,
-    email: reg.email,
-    password: reg.password,
-    block: reg.block,
-    room: roomAssignment || "TBD"
+    id: String(res.insertedId), name: reg.name, role: "student",
+    prn: reg.prn, email: reg.email, password: reg.password, block: reg.block, room
   };
-  
   USERS.push(newUser);
+
+  await API.update("pending_registrations", { status: "approved" }, { id: Number(regId) });
   reg.status = "approved";
   PENDING_REGISTRATIONS = PENDING_REGISTRATIONS.filter(r => r.id !== regId);
   return newUser;
 }
 
-function rejectRegistration(regId, reason) {
+async function rejectRegistration(regId, reason) {
   const reg = PENDING_REGISTRATIONS.find(r => r.id === regId);
   if (!reg) return;
+  const rejectionReason = reason || "Rejected by admin";
+  await API.update("pending_registrations", { status: "rejected", rejection_reason: rejectionReason }, { id: Number(regId) });
   reg.status = "rejected";
-  reg.rejectionReason = reason || "Rejected by admin";
+  reg.rejectionReason = rejectionReason;
 }
 
 function getPendingRegistrations() {
   return PENDING_REGISTRATIONS.filter(r => r.status === "pending");
 }
 
-function addComplaint({ title, category, description, photo, studentId }) {
+// ---------------- Complaints ----------------
+
+async function addComplaint({ title, category, description, photo, studentId }) {
+  const priority = CATEGORIES[category] || "Undetermined";
+  const res = await API.insert("complaints", {
+    title, category, priority, description,
+    status: "Pending", student_id: Number(studentId)
+  });
+
+  const student = getUser(studentId);
+  const note = `Complaint submitted by ${student.name}`;
+  await API.insert("complaint_history", { complaint_id: res.insertedId, note });
+
   const c = {
-    id: nextComplaintId(),
-    title,
-    category,
-    priority: CATEGORIES[category] || "Undetermined",
-    description,
-    photo: photo || null,
+    id: String(res.insertedId),
+    title, category, priority, description,
+    photo: photo || null, // client-side only, see note at top of file
     status: "Pending",
     studentId,
     assignedTo: null,
     createdAt: nowStamp(),
-    history: [{ at: nowStamp(), text: `Complaint submitted by ${getUser(studentId).name}` }]
+    history: [{ at: nowStamp(), text: note }]
   };
   COMPLAINTS.unshift(c);
   return c;
 }
 
-function assignComplaint(complaintId, maintenanceId, wardenId) {
+async function assignComplaint(complaintId, maintenanceId, wardenId) {
   const c = COMPLAINTS.find(x => x.id === complaintId);
   if (!c) return;
+
+  await API.update("complaints", { assigned_to: Number(maintenanceId), status: "Assigned" }, { id: Number(complaintId) });
+  const note = `Assigned to ${getUser(maintenanceId).name} by ${getUser(wardenId).name}`;
+  await API.insert("complaint_history", { complaint_id: Number(complaintId), note });
+
   c.assignedTo = maintenanceId;
   c.status = "Assigned";
-  c.history.push({ at: nowStamp(), text: `Assigned to ${getUser(maintenanceId).name} by ${getUser(wardenId).name}` });
+  c.history.push({ at: nowStamp(), text: note });
 }
 
-function markDone(complaintId, maintenanceId, photo) {
+async function markDone(complaintId, maintenanceId, photo) {
   const c = COMPLAINTS.find(x => x.id === complaintId);
   if (!c) return;
+
+  await API.update("complaints", { status: "Under Review" }, { id: Number(complaintId) });
+  const note = `Marked done by ${getUser(maintenanceId).name}, awaiting warden review`;
+  await API.insert("complaint_history", { complaint_id: Number(complaintId), note });
+
   c.status = "Under Review";
-  if (photo) c.completionPhoto = photo;
-  c.history.push({ at: nowStamp(), text: `Marked done by ${getUser(maintenanceId).name}, awaiting warden review` });
+  if (photo) c.completionPhoto = photo; // client-side only, see note at top of file
+  c.history.push({ at: nowStamp(), text: note });
 }
 
-function resolveComplaint(complaintId, wardenId) {
+async function resolveComplaint(complaintId, wardenId) {
   const c = COMPLAINTS.find(x => x.id === complaintId);
   if (!c) return;
+
+  await API.update("complaints", { status: "Resolved" }, { id: Number(complaintId) });
+  const note = `Marked resolved by ${getUser(wardenId).name}`;
+  await API.insert("complaint_history", { complaint_id: Number(complaintId), note });
+
   c.status = "Resolved";
-  c.history.push({ at: nowStamp(), text: `Marked resolved by ${getUser(wardenId).name}` });
+  c.history.push({ at: nowStamp(), text: note });
 }
 
-function reassignComplaint(complaintId, wardenId) {
+async function reassignComplaint(complaintId, wardenId) {
   const c = COMPLAINTS.find(x => x.id === complaintId);
   if (!c) return;
+
+  await API.update("complaints", { status: "Assigned" }, { id: Number(complaintId) });
+  const note = `Sent back to ${getUser(c.assignedTo).name} by ${getUser(wardenId).name}`;
+  await API.insert("complaint_history", { complaint_id: Number(complaintId), note });
+
   c.status = "Assigned";
-  c.history.push({ at: nowStamp(), text: `Sent back to ${getUser(c.assignedTo).name} by ${getUser(wardenId).name}` });
+  c.history.push({ at: nowStamp(), text: note });
 }
 
 function complaintsForStudent(studentId) {

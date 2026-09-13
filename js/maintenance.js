@@ -228,7 +228,7 @@ function attachMaintenanceHandlers() {
     reader.readAsDataURL(file);
   });
 
-  document.getElementById("doneConfirm").addEventListener("click", () => {
+  document.getElementById("doneConfirm").addEventListener("click", async () => {
     const errorEl = document.getElementById("doneError");
 
     if (!_maintenanceTargetId) {
@@ -247,7 +247,7 @@ function attachMaintenanceHandlers() {
       return;
     }
 
-    markDone(
+    await markDone(
       _maintenanceTargetId,
       currentUser.id,
       _maintenancePhoto

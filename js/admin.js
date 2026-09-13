@@ -91,9 +91,9 @@ function attachAdminHandlers() {
     });
   });
 
-  document.getElementById("approveConfirm").addEventListener("click", () => {
+  document.getElementById("approveConfirm").addEventListener("click", async () => {
     const room = document.getElementById("approveRoom").value.trim();
-    approveRegistration(_approveTargetId, room || null);
+    await approveRegistration(_approveTargetId, room || null);
     approveModal.hide();
     render();
   });
@@ -106,9 +106,9 @@ function attachAdminHandlers() {
     });
   });
 
-  document.getElementById("rejectConfirm").addEventListener("click", () => {
+  document.getElementById("rejectConfirm").addEventListener("click", async () => {
     const reason = document.getElementById("rejectReason").value.trim();
-    rejectRegistration(_approveTargetId, reason);
+    await rejectRegistration(_approveTargetId, reason);
     rejectModal.hide();
     render();
   });
