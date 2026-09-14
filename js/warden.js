@@ -1,6 +1,7 @@
 let _wardenTab = "active";
 let _assignTargetId = null;
 let _severityTargetId = null;
+let _wardenEscalateTargetId = null;
 
 function renderWardenView() {
   const active = activeComplaintsForWarden();
@@ -68,6 +69,29 @@ function renderWardenView() {
         </div>
       </div>
     </div>
+
+    <div class="modal fade" id="wardenEscalateModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Escalate to Chief Warden</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small" style="color: var(--ink-soft);">
+              This moves the complaint out of your queue and into the Chief Warden's, ahead of any
+              SLA deadline. A reason is required for the audit log.
+            </p>
+            <label class="form-label">Reason</label>
+            <textarea class="form-control" id="wardenEscalateReason" rows="3" placeholder="Why does this need to go up the chain now?" required></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-danger" id="wardenEscalateConfirm">Escalate</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -87,6 +111,10 @@ function renderWardenActiveList(list) {
         <button class="btn btn-outline-secondary btn-sm" data-reassign="${c.id}">Reassign</button>
       `;
     }
+    // Manual escalation is only meaningful while the complaint is still
+    // sitting with the Warden (level 0) — once it's been escalated, the
+    // authority holding it uses their own "Escalate further" action instead.
+    const canEscalate = c.escalationLevel === 0;
     return `
       <div class="complaint-row p-3">
         <div class="d-flex justify-content-between align-items-start gap-2">
@@ -107,6 +135,7 @@ function renderWardenActiveList(list) {
         <div class="mt-2 d-flex gap-2 flex-wrap">
           ${actions}
           <button class="btn btn-outline-secondary btn-sm" data-severity="${c.id}">Change severity</button>
+          ${canEscalate ? `<button class="btn btn-outline-danger btn-sm" data-warden-escalate="${c.id}">Escalate</button>` : ""}
         </div>
       </div>
     `;
@@ -193,6 +222,31 @@ function attachWardenHandlers() {
       const reason = document.getElementById("severityReason").value.trim();
       await updateComplaintSeverity(_severityTargetId, newSeverity, currentUser.id, reason);
       severityModal.hide();
+      render();
+    });
+  }
+
+  const wardenEscalateModalEl = document.getElementById("wardenEscalateModal");
+  const wardenEscalateModal = new bootstrap.Modal(wardenEscalateModalEl);
+
+  document.querySelectorAll("[data-warden-escalate]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      _wardenEscalateTargetId = btn.getAttribute("data-warden-escalate");
+      document.getElementById("wardenEscalateReason").value = "";
+      wardenEscalateModal.show();
+    });
+  });
+
+  const wardenEscalateConfirm = document.getElementById("wardenEscalateConfirm");
+  if (wardenEscalateConfirm) {
+    wardenEscalateConfirm.addEventListener("click", async () => {
+      const reason = document.getElementById("wardenEscalateReason").value.trim();
+      if (!reason) {
+        document.getElementById("wardenEscalateReason").focus();
+        return;
+      }
+      await escalateManually(_wardenEscalateTargetId, currentUser.id, reason);
+      wardenEscalateModal.hide();
       render();
     });
   }
