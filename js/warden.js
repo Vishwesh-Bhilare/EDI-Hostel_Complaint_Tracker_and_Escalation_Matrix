@@ -1,12 +1,13 @@
 let _wardenTab = "active";
 let _assignTargetId = null;
+let _severityTargetId = null;
 
 function renderWardenView() {
   const active = activeComplaintsForWarden();
   const history = historyComplaintsForWarden();
 
   return `
-    <div class="container pb-5" style="max-width: 760px;">
+    <div class="container pb-5" style="max-width: 780px;">
       <ul class="nav nav-pills mb-3" id="wardenTabs">
         <li class="nav-item">
           <button class="nav-link ${_wardenTab === "active" ? "active" : ""}" data-tab="active">Active (${active.length})</button>
@@ -39,6 +40,34 @@ function renderWardenView() {
         </div>
       </div>
     </div>
+
+    <div class="modal fade" id="severityModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Change severity</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small" style="color: var(--ink-soft);">
+              Severity is auto-set from category at submission. Correct it here if a student's
+              category choice overstates (or understates) the real urgency — this recalculates
+              the SLA clock from now.
+            </p>
+            <label class="form-label">New severity</label>
+            <select class="form-select mb-3" id="severitySelect">
+              ${SEVERITY_LEVELS.map(s => `<option value="${s}">${s}</option>`).join("")}
+            </select>
+            <label class="form-label">Reason (optional)</label>
+            <input type="text" class="form-control" id="severityReason" placeholder="e.g. Minor cosmetic issue, not urgent">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-navy" id="severityConfirm">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -67,11 +96,18 @@ function renderWardenActiveList(list) {
           </div>
           <div class="d-flex flex-column align-items-end gap-1">
             ${statusBadge(c.status)}
-            ${priorityBadge(c.priority)}
+            ${severityBadge(c.severity)}
           </div>
         </div>
         <div class="mt-2" style="color: var(--ink-soft); font-size: 0.9rem;">${escapeHtml(c.description)}</div>
-        <div class="mt-2 d-flex gap-2">${actions}</div>
+        <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+          ${escalationBadge(c.escalationLevel)}
+          <span class="small" style="color: var(--ink-soft);">Resolve by ${formatDueBy(c.resolutionDueAt)}</span>
+        </div>
+        <div class="mt-2 d-flex gap-2 flex-wrap">
+          ${actions}
+          <button class="btn btn-outline-secondary btn-sm" data-severity="${c.id}">Change severity</button>
+        </div>
       </div>
     `;
   }).join("");
@@ -88,7 +124,7 @@ function renderWardenHistoryList(list) {
         </div>
         <div class="d-flex flex-column align-items-end gap-1">
           ${statusBadge(c.status)}
-          ${priorityBadge(c.priority)}
+          ${severityBadge(c.severity)}
         </div>
       </div>
     </div>
@@ -136,4 +172,28 @@ function attachWardenHandlers() {
       render();
     });
   });
+
+  const severityModalEl = document.getElementById("severityModal");
+  const severityModal = new bootstrap.Modal(severityModalEl);
+
+  document.querySelectorAll("[data-severity]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      _severityTargetId = btn.getAttribute("data-severity");
+      const c = COMPLAINTS.find(x => x.id === _severityTargetId);
+      document.getElementById("severitySelect").value = c ? c.severity : "Medium";
+      document.getElementById("severityReason").value = "";
+      severityModal.show();
+    });
+  });
+
+  const severityConfirm = document.getElementById("severityConfirm");
+  if (severityConfirm) {
+    severityConfirm.addEventListener("click", async () => {
+      const newSeverity = document.getElementById("severitySelect").value;
+      const reason = document.getElementById("severityReason").value.trim();
+      await updateComplaintSeverity(_severityTargetId, newSeverity, currentUser.id, reason);
+      severityModal.hide();
+      render();
+    });
+  }
 }

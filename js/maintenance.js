@@ -122,7 +122,7 @@ function maintenanceComplaintCard(c) {
 
         <div class="d-flex flex-column align-items-end gap-1">
           ${statusBadge(c.status)}
-          ${priorityBadge(c.priority)}
+          ${severityBadge(c.severity)}
         </div>
 
       </div>

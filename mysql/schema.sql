@@ -5,12 +5,12 @@ CREATE DATABASE IF NOT EXISTS hostelcare;
 USE hostelcare;
 
 -- ===================================================
--- USERS (students, wardens, maintenance staff, admin)
+-- USERS (students, wardens, escalation authorities, maintenance staff, admin)
 -- ===================================================
 CREATE TABLE users (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(100) NOT NULL,
-  role       ENUM('student', 'warden', 'maintenance', 'admin') NOT NULL,
+  role       ENUM('student', 'warden', 'chief_warden', 'college_authority', 'principal', 'maintenance', 'admin') NOT NULL,
   prn        VARCHAR(20) UNIQUE,          -- only for students
   email      VARCHAR(100) UNIQUE,         -- only for students
   password   VARCHAR(255),                -- store a hash, not plain text
@@ -35,32 +35,56 @@ CREATE TABLE pending_registrations (
 
 -- ===================================================
 -- COMPLAINTS
+-- severity drives the SLA policy (response/resolution due-by) and therefore
+-- the escalation matrix. It defaults from category at creation time but the
+-- warden may correct it (e.g. a student picking an inflated category for a
+-- minor issue) via updateComplaintSeverity() in js/data.js.
 -- ===================================================
 CREATE TABLE complaints (
-  id                INT AUTO_INCREMENT PRIMARY KEY,
-  title             VARCHAR(150) NOT NULL,
-  category          VARCHAR(50) NOT NULL,
-  priority          ENUM('High', 'Moderate', 'Low', 'Undetermined') NOT NULL,
-  description       TEXT,
-  photo             VARCHAR(255),          -- path/URL to uploaded photo
-  completion_photo  VARCHAR(255),          -- path/URL to maintenance completion photo
-  status            ENUM('Pending', 'Assigned', 'Under Review', 'Resolved') NOT NULL DEFAULT 'Pending',
-  student_id        INT NOT NULL,          -- who filed it
-  assigned_to       INT,                   -- maintenance staff (nullable until assigned)
-  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  id                  INT AUTO_INCREMENT PRIMARY KEY,
+  title               VARCHAR(150) NOT NULL,
+  category            VARCHAR(50) NOT NULL,
+  severity            ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+  description         TEXT,
+  photo               VARCHAR(255),          -- path/URL to uploaded photo
+  completion_photo    VARCHAR(255),          -- path/URL to maintenance completion photo
+  status              ENUM('Pending', 'Assigned', 'Under Review', 'Resolved') NOT NULL DEFAULT 'Pending',
+  student_id          INT NOT NULL,          -- who filed it
+  hostel_block        VARCHAR(100),          -- bound from the student's block at creation
+  assigned_to         INT,                   -- maintenance staff (nullable until assigned)
+  escalation_level    TINYINT NOT NULL DEFAULT 0,  -- 0=Warden, 1=Chief Warden, 2=College Authority, 3=Principal
+  response_due_at     TIMESTAMP NULL,        -- SLA: must be assigned/acknowledged by this time
+  resolution_due_at   TIMESTAMP NULL,        -- SLA: must be resolved by this time
+  final_due_at        TIMESTAMP NULL,        -- last-resort threshold: escalate all the way to Principal
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (student_id) REFERENCES users(id),
   FOREIGN KEY (assigned_to) REFERENCES users(id)
 );
 
 -- ===================================================
--- COMPLAINT HISTORY / TIMELINE (one row per status change)
+-- COMPLAINT HISTORY / TIMELINE (one row per status/severity/escalation change)
 -- ===================================================
 CREATE TABLE complaint_history (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id  INT NOT NULL,
   note          VARCHAR(255) NOT NULL,     -- e.g. "Assigned to Maintenance Staff A by Warden A"
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (complaint_id) REFERENCES complaints(id)
+);
+
+-- ===================================================
+-- ESCALATIONS (audit trail of every level change - the SRS's EscalationEvent)
+-- ===================================================
+CREATE TABLE escalations (
+  id                 INT AUTO_INCREMENT PRIMARY KEY,
+  complaint_id       INT NOT NULL,
+  level              TINYINT NOT NULL,          -- 1, 2 or 3
+  escalated_to_role  VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | principal
+  reason             VARCHAR(255) NOT NULL,      -- "SLA breach (auto)" or a manual override reason
+  triggered_by       VARCHAR(20) NOT NULL DEFAULT 'system', -- 'system' or a user id, for manual escalations
+  triggered_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (complaint_id) REFERENCES complaints(id)
 );
@@ -74,6 +98,9 @@ INSERT INTO users (name, role, prn, email, password, block, room) VALUES
 
 INSERT INTO users (name, role) VALUES
   ('Warden A', 'warden'),
+  ('Chief Warden', 'chief_warden'),
+  ('College Authority', 'college_authority'),
+  ('Principal', 'principal'),
   ('Maintenance Staff A', 'maintenance'),
   ('Maintenance Staff B', 'maintenance'),
   ('Admin', 'admin');

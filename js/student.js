@@ -36,9 +36,9 @@ function renderStudentView() {
                 <label class="form-label">Category</label>
                 <select class="form-select" id="ncCategory" required>
                   <option value="" disabled selected>Choose a category</option>
-                  ${Object.keys(CATEGORIES).map(cat => `<option value="${cat}">${cat}</option>`).join("")}
+                  ${Object.keys(CATEGORY_SEVERITY).map(cat => `<option value="${cat}">${cat}</option>`).join("")}
                 </select>
-                <div class="form-text" id="ncPriorityPreview"></div>
+                <div class="form-text" id="ncSeverityPreview"></div>
               </div>
               <div class="mb-3">
                 <label class="form-label">Description</label>
@@ -72,10 +72,11 @@ function studentComplaintCard(c) {
         </div>
         <div class="d-flex flex-column align-items-end gap-1">
           ${statusBadge(c.status)}
-          ${priorityBadge(c.priority)}
+          ${severityBadge(c.severity)}
         </div>
       </div>
       <div class="mt-2" style="color: var(--ink-soft); font-size: 0.9rem;">${escapeHtml(c.description)}</div>
+      ${c.escalationLevel > 0 ? `<div class="mt-2">${escalationBadge(c.escalationLevel)}</div>` : ""}
     </div>
   `;
 }
@@ -88,7 +89,7 @@ function attachStudentHandlers() {
 
   openBtn.addEventListener("click", () => {
     document.getElementById("newComplaintForm").reset();
-    document.getElementById("ncPriorityPreview").textContent = "";
+    document.getElementById("ncSeverityPreview").textContent = "";
     document.getElementById("ncPhotoPreview").style.display = "none";
     document.getElementById("ncError").style.setProperty("display", "none", "important");
     _newComplaintPhoto = null;
@@ -96,8 +97,10 @@ function attachStudentHandlers() {
   });
 
   document.getElementById("ncCategory").addEventListener("change", (e) => {
-    const p = CATEGORIES[e.target.value];
-    document.getElementById("ncPriorityPreview").textContent = p ? `Default priority: ${p}` : "";
+    const s = CATEGORY_SEVERITY[e.target.value];
+    document.getElementById("ncSeverityPreview").textContent = s
+      ? `This will be filed as ${s} severity based on category. Your warden can correct this if needed.`
+      : "";
   });
 
   document.getElementById("ncPhoto").addEventListener("change", (e) => {

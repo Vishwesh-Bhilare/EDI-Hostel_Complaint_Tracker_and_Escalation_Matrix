@@ -1,15 +1,25 @@
 let currentUser = null;
 let appPage = "welcome"; // welcome | login | signup
 
-function priorityBadge(priority) {
-  const cls = {
-    "High": "p-high",
-    "Moderate": "p-moderate",
-    "Low": "p-low",
-    "Undetermined": "p-undetermined"
-  }[priority] || "p-undetermined";
+const ROLE_LABELS = {
+  student: "Student",
+  warden: "Warden",
+  chief_warden: "Chief Warden",
+  college_authority: "College Authority",
+  principal: "Principal",
+  maintenance: "Maintenance",
+  admin: "Admin"
+};
 
-  return `<span class="badge-priority ${cls}">${priority} priority</span>`;
+function severityBadge(severity) {
+  const cls = {
+    "Critical": "sv-critical",
+    "High": "sv-high",
+    "Medium": "sv-medium",
+    "Low": "sv-low"
+  }[severity] || "sv-medium";
+
+  return `<span class="badge-severity ${cls}">${severity}</span>`;
 }
 
 function statusBadge(status) {
@@ -23,6 +33,12 @@ function statusBadge(status) {
   return `<span class="badge-status ${cls}">${status}</span>`;
 }
 
+function escalationBadge(level) {
+  if (!level) return `<span class="badge-escalation esc-none">With Warden</span>`;
+  const cls = { 1: "esc-1", 2: "esc-2", 3: "esc-3" }[level] || "esc-1";
+  return `<span class="badge-escalation ${cls}">Escalated &rarr; ${labelForLevel(level)}</span>`;
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str || "";
@@ -32,12 +48,12 @@ function escapeHtml(str) {
 function login(userIdentifier, password = null) {
   const user = getUserByPrnOrEmail(userIdentifier) || getUser(userIdentifier);
   if (!user) return false;
-  
+
   // If password is provided, verify it
   if (password !== null && user.password && user.password !== password) {
     return false;
   }
-  
+
   currentUser = user;
   render();
   return true;
@@ -73,6 +89,10 @@ function render() {
     body = renderStudentView();
   } else if (currentUser.role === "warden") {
     body = renderWardenView();
+  } else if (currentUser.role === "chief_warden" || currentUser.role === "college_authority") {
+    body = renderAuthorityView(currentUser.role);
+  } else if (currentUser.role === "principal") {
+    body = renderPrincipalView();
   } else if (currentUser.role === "maintenance") {
     body = renderMaintenanceView();
   } else if (currentUser.role === "admin") {
@@ -84,12 +104,7 @@ function render() {
 }
 
 function renderTopbar() {
-  const roleLabel = {
-    student: "Student",
-    warden: "Warden",
-    maintenance: "Maintenance",
-    admin: "Admin"
-  }[currentUser.role];
+  const roleLabel = ROLE_LABELS[currentUser.role] || currentUser.role;
 
   return `
     <div class="hct-topbar px-3 px-md-4 py-3 d-flex justify-content-between align-items-center mb-4">
@@ -121,6 +136,9 @@ function renderLogin() {
   const groups = [
     { role: "student", label: "Students" },
     { role: "warden", label: "Warden" },
+    { role: "chief_warden", label: "Chief Warden" },
+    { role: "college_authority", label: "College Authority" },
+    { role: "principal", label: "Principal" },
     { role: "maintenance", label: "Maintenance" },
     { role: "admin", label: "Admin" }
   ];
@@ -254,7 +272,7 @@ function attachLoginHandlers() {
     const prn = document.getElementById("loginPrn").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
     const errorEl = document.getElementById("loginError");
-    
+
     if (!prn) {
       if (errorEl) {
         errorEl.textContent = "Please enter PRN or Email.";
@@ -262,7 +280,7 @@ function attachLoginHandlers() {
       }
       return;
     }
-    
+
     if (!login(prn, password)) {
       if (errorEl) {
         errorEl.textContent = "Invalid PRN/Email or password.";
@@ -270,7 +288,7 @@ function attachLoginHandlers() {
       }
       return;
     }
-    
+
     if (errorEl) {
       errorEl.style.setProperty("display", "none", "important");
     }
@@ -339,12 +357,31 @@ function attachViewHandlers() {
     attachWardenHandlers();
   }
 
+  if (currentUser && (currentUser.role === "chief_warden" || currentUser.role === "college_authority")) {
+    attachAuthorityHandlers(currentUser.role);
+  }
+
+  if (currentUser && currentUser.role === "principal") {
+    attachPrincipalHandlers();
+  }
+
   if (currentUser && currentUser.role === "maintenance") {
     attachMaintenanceHandlers();
   }
 
   if (currentUser && currentUser.role === "admin") {
     attachAdminHandlers();
+  }
+}
+
+// Runs the SLA-breach sweep, then re-renders if something actually changed
+// (so an idle screen doesn't visibly flicker every poll for no reason).
+async function runEscalationSweepAndRender() {
+  const before = COMPLAINTS.map(c => c.escalationLevel).join(",");
+  await checkEscalations();
+  const after = COMPLAINTS.map(c => c.escalationLevel).join(",");
+  if (before !== after && currentUser) {
+    render();
   }
 }
 
@@ -363,5 +400,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     `;
     return;
   }
+
+  await checkEscalations(); // catch anything that breached while nobody was watching
   render();
+
+  // Poll for SLA breaches every 30s so escalation happens without anyone
+  // having to click anything (see the note in js/data.js#checkEscalations).
+  setInterval(runEscalationSweepAndRender, 30000);
 });

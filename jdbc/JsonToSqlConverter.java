@@ -44,10 +44,13 @@ public class JsonToSqlConverter {
         TABLE_COLUMNS.put("pending_registrations", new HashSet<>(Arrays.asList(
                 "id", "name", "prn", "email", "password", "block", "status", "rejection_reason", "requested_at")));
         TABLE_COLUMNS.put("complaints", new HashSet<>(Arrays.asList(
-                "id", "title", "category", "priority", "description", "photo", "completion_photo",
-                "status", "student_id", "assigned_to", "created_at")));
+                "id", "title", "category", "severity", "description", "photo", "completion_photo",
+                "status", "student_id", "hostel_block", "assigned_to", "escalation_level",
+                "response_due_at", "resolution_due_at", "final_due_at", "created_at")));
         TABLE_COLUMNS.put("complaint_history", new HashSet<>(Arrays.asList(
                 "id", "complaint_id", "note", "created_at")));
+        TABLE_COLUMNS.put("escalations", new HashSet<>(Arrays.asList(
+                "id", "complaint_id", "level", "escalated_to_role", "reason", "triggered_by", "triggered_at")));
     }
 
     public static Map<String, Object> handleRequest(Connection conn, Map<String, Object> request) {
