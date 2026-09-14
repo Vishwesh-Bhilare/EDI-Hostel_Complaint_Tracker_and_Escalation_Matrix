@@ -424,6 +424,37 @@ async function recordEscalation(c, newLevel, byUserId, reason) {
   });
 }
 
+// ---------------- Dev/testing helper ----------------
+// Backdates a complaint's due-by timestamps and immediately runs the real
+// checkEscalations() sweep, so this exercises the actual auto-detection
+// code path (not a shortcut around it) — useful since real SLA windows are
+// hours long and nobody wants to wait that out to test the escalation
+// engine. Writes its own honest history note first, so the audit trail
+// clearly separates "someone forced this into the past for testing" from
+// the auto-escalation entry that follows it.
+async function debugForceOverdue(complaintId, actorId) {
+  const c = COMPLAINTS.find(x => x.id === complaintId);
+  if (!c || c.status === "Resolved") return;
+
+  const past = new Date(Date.now() - 60 * 1000); // 1 minute in the past
+  await API.update("complaints", {
+    response_due_at: toSqlDateTime(past),
+    resolution_due_at: toSqlDateTime(past),
+    final_due_at: toSqlDateTime(past)
+  }, { id: Number(complaintId) });
+
+  const actor = getUser(actorId);
+  const note = `[Test] Due-by timestamps set to the past by ${actor ? actor.name : actorId} to test escalation`;
+  await API.insert("complaint_history", { complaint_id: Number(complaintId), note });
+
+  c.responseDueAt = past;
+  c.resolutionDueAt = past;
+  c.finalDueAt = past;
+  c.history.push({ at: nowStamp(), text: note });
+
+  await checkEscalations(); // this is the real, unattended detection logic
+}
+
 // ---------------- The escalation engine (SLA breach sweep) ----------------
 // The backend is a plain CRUD relay with no scheduler, so there's no true
 // server-side timer queue here. Instead this sweep re-checks every open
