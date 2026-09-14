@@ -87,6 +87,10 @@ public class RequestHandler implements Runnable {
             String body = new String(bodyBytes, 0, totalRead, StandardCharsets.UTF_8);
 
             // ---- Route ----
+            if ("OPTIONS".equals(method)) {
+                writeText(out, 204, "", "text/plain; charset=utf-8");
+                return;
+            }
             if ("POST".equals(method) && "/api".equals(path)) {
                 handleApi(out, body);
             } else if ("GET".equals(method) || "HEAD".equals(method)) {
@@ -177,6 +181,9 @@ public class RequestHandler implements Runnable {
         header.append("Content-Type: ").append(contentType).append("\r\n");
         header.append("Content-Length: ").append(declaredLength).append("\r\n");
         header.append("Cache-Control: no-store\r\n");
+        header.append("Access-Control-Allow-Origin: *\r\n");
+        header.append("Access-Control-Allow-Methods: GET, POST, HEAD, OPTIONS\r\n");
+        header.append("Access-Control-Allow-Headers: Content-Type\r\n");
         header.append("Connection: close\r\n");
         header.append("\r\n");
 
@@ -188,6 +195,7 @@ public class RequestHandler implements Runnable {
     private static String statusText(int code) {
         switch (code) {
             case 200: return "OK";
+            case 204: return "No Content";
             case 400: return "Bad Request";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";

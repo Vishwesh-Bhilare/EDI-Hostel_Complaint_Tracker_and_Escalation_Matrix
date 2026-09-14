@@ -90,9 +90,9 @@ def main():
     time.sleep(1)  # give the socket a moment to bind
 
     print(
-        f"\nOpen: http://localhost:{BACKEND_PORT}/\n"
-        f"(This one process serves the frontend AND /api.)\n"
+        f"\n(This one process serves the frontend AND /api.)\n"
         f"Press Ctrl+C to stop.\n"
+        f"(The server itself will print the LAN URL once the socket is bound.)\n"
     )
 
     while True:
