@@ -51,8 +51,9 @@ function renderAuthorityQueueList(list, level) {
   return list.map(c => {
     const student = getUser(c.studentId);
     const canEscalateFurther = level < 3;
+    const rowClass = level === 3 ? "complaint-row esc-final p-3" : "complaint-row p-3";
     return `
-      <div class="complaint-row p-3">
+      <div class="${rowClass}">
         <div class="d-flex justify-content-between align-items-start gap-2">
           <div>
             <div class="title">${escapeHtml(c.title)}</div>

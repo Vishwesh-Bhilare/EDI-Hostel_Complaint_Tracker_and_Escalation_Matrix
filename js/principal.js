@@ -23,7 +23,12 @@ function renderPrincipalView() {
         <li class="nav-item"><button class="nav-link ${_principalTab === "overview" ? "active" : ""}" data-ptab="overview">Overview</button></li>
         <li class="nav-item"><button class="nav-link ${_principalTab === "all" ? "active" : ""}" data-ptab="all">All complaints</button></li>
         <li class="nav-item"><button class="nav-link ${_principalTab === "escalations" ? "active" : ""}" data-ptab="escalations">Escalation log</button></li>
-        <li class="nav-item"><button class="nav-link ${_principalTab === "queue" ? "active" : ""}" data-ptab="queue">My queue (${complaintsAtLevel(PRINCIPAL_LEVEL).length})</button></li>
+        <li class="nav-item">
+          <button class="nav-link ${_principalTab === "queue" ? "active" : ""}" data-ptab="queue">
+            My queue (${complaintsAtLevel(PRINCIPAL_LEVEL).length})
+            ${complaintsAtLevel(PRINCIPAL_LEVEL).length ? '<span class="ms-1">&#9679;</span>' : ""}
+          </button>
+        </li>
       </ul>
 
       ${
@@ -48,7 +53,15 @@ function renderPrincipalOverview() {
     { label: "SLA compliance (never escalated)", value: s.complianceRate + "%", tone: "" }
   ];
 
+  const banner = s.breachedFinal ? `
+    <div class="principal-alert-banner">
+      <span>&#9888; ${s.breachedFinal} complaint${s.breachedFinal > 1 ? "s" : ""} escalated all the way to you and waiting.</span>
+      <button class="btn btn-danger btn-sm" id="pGoToQueueBtn">View my queue</button>
+    </div>
+  ` : "";
+
   return `
+    ${banner}
     <div class="row g-3 mb-4">
       ${cards.map(c => `
         <div class="col-6 col-md-4">
@@ -114,8 +127,9 @@ function renderPrincipalAllComplaints() {
   const rows = list.length ? list.map(c => {
     const student = getUser(c.studentId);
     const assignee = c.assignedTo ? getUser(c.assignedTo) : null;
+    const rowClass = c.escalationLevel === 3 ? "complaint-row esc-final p-3" : "complaint-row p-3";
     return `
-      <div class="complaint-row p-3">
+      <div class="${rowClass}">
         <div class="d-flex justify-content-between align-items-start gap-2">
           <div>
             <div class="title">${escapeHtml(c.title)}</div>
@@ -147,8 +161,9 @@ function renderPrincipalEscalationLog() {
   const rows = ESCALATIONS.slice(0, 50).map(e => {
     const c = COMPLAINTS.find(x => x.id === e.complaintId);
     const actor = e.triggeredBy === "system" ? "System (auto)" : (getUser(e.triggeredBy) ? getUser(e.triggeredBy).name : e.triggeredBy);
+    const rowClass = e.level === 3 ? "complaint-row esc-final p-3" : "complaint-row p-3";
     return `
-      <div class="complaint-row p-3">
+      <div class="${rowClass}">
         <div class="d-flex justify-content-between align-items-start gap-2">
           <div>
             <div class="title">${c ? escapeHtml(c.title) : "(deleted complaint)"} &middot; ${e.complaintId}</div>
@@ -173,6 +188,14 @@ function attachPrincipalHandlers() {
       render();
     });
   });
+
+  const goToQueueBtn = document.getElementById("pGoToQueueBtn");
+  if (goToQueueBtn) {
+    goToQueueBtn.addEventListener("click", () => {
+      _principalTab = "queue";
+      render();
+    });
+  }
 
   if (_principalTab === "all") {
     const blockSel = document.getElementById("pFilterBlock");

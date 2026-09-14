@@ -175,3 +175,24 @@ body {
   padding-left: 0.75rem;
   margin-bottom: 0.5rem;
 }
+
+.complaint-row.esc-final {
+  border-color: var(--esc-3);
+  border-left: 4px solid var(--esc-3);
+  background: linear-gradient(to right, var(--esc-3-bg) 0%, var(--card) 12%);
+}
+
+.principal-alert-banner {
+  border: 1px solid var(--esc-3);
+  background: var(--esc-3-bg);
+  color: var(--esc-3);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  font-weight: 500;
+}
