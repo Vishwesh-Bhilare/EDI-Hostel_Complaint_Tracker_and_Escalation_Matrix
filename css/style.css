@@ -1,12 +1,17 @@
 :root {
-  --navy: #1F3A5F;
-  --navy-dark: #16293F;
-  --teal: #2D6E63;
-  --bg: #F4F5F3;
+  /* Brand — green */
+  --navy: #1B5E3F;        /* primary (was navy blue, now deep forest green) */
+  --navy-dark: #123D29;
+  --teal: #2F8F63;        /* secondary accent green */
+  --sage: #4C9A73;
+  --mint: #E3F1E9;
+  --mint-deep: #CDE7DA;
+
+  --bg: #F3F7F4;
   --card: #FFFFFF;
-  --ink: #202A33;
-  --ink-soft: #5B6670;
-  --line: #E1E4E1;
+  --ink: #1C2621;
+  --ink-soft: #5B6D63;
+  --line: #DCE6E0;
 
   --priority-high: #C0392B;
 
@@ -16,13 +21,13 @@
   --severity-high-bg: #FBEAE8;
   --severity-medium: #B8710A;
   --severity-medium-bg: #FBF0DE;
-  --severity-low: #2F7D4F;
-  --severity-low-bg: #E8F3EC;
+  --severity-low: #1F7A4D;
+  --severity-low-bg: #E6F4EC;
 
   --status-pending: #6B7280;
-  --status-assigned: #1F3A5F;
+  --status-assigned: #1B5E3F;
   --status-review: #B8710A;
-  --status-resolved: #2F7D4F;
+  --status-resolved: #1F7A4D;
 
   --esc-1: #B8710A;
   --esc-1-bg: #FBF0DE;
@@ -38,36 +43,103 @@ body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
 
+/* ---------- Hero header (topbar) ---------- */
+
 .hct-topbar {
-  background: var(--navy);
+  background: linear-gradient(135deg, var(--navy) 0%, var(--teal) 100%);
   color: #fff;
+  border-radius: 0 0 26px 26px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(18, 61, 41, 0.18);
+}
+
+.hct-topbar::after {
+  content: "";
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  pointer-events: none;
 }
 
 .hct-topbar .brand {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1.15rem;
   letter-spacing: 0.01em;
 }
 
 .hct-topbar .role-tag {
-  font-size: 0.8rem;
-  color: #C9D5E3;
+  font-size: 0.82rem;
+  color: #D9ECE1;
+  margin-top: 0.15rem;
 }
+
+.hct-topbar .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hct-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.hct-topbar .btn-outline-light {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---------- Cards / surfaces ---------- */
 
 .hct-card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .hct-account-card {
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.1s ease;
+  transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
 }
 
 .hct-account-card:hover {
-  border-color: var(--navy);
-  transform: translateY(-1px);
+  border-color: var(--teal);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(27, 94, 63, 0.1);
 }
+
+.hct-account-card .mini-avatar {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 10px;
+  background: var(--mint);
+  color: var(--navy);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+/* ---------- Badges ---------- */
 
 .badge-severity {
   font-weight: 500;
@@ -104,8 +176,16 @@ body {
 .badge-escalation.esc-2 { color: var(--esc-2); background: var(--esc-2-bg); }
 .badge-escalation.esc-3 { color: var(--esc-3); background: var(--esc-3-bg); font-weight: 700; }
 
+/* ---------- Stat cards ---------- */
+
 .stat-card {
   text-align: left;
+  border-radius: 14px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(27, 94, 63, 0.08);
 }
 .stat-card .stat-value {
   font-size: 1.6rem;
@@ -122,10 +202,17 @@ body {
 .stat-card.stat-warn .stat-value { color: var(--esc-1); }
 .stat-card.stat-danger .stat-value { color: var(--esc-3); }
 
+/* ---------- Complaint rows ---------- */
+
 .complaint-row {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--card);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.complaint-row:hover {
+  border-color: var(--mint-deep);
+  box-shadow: 0 4px 14px rgba(27, 94, 63, 0.07);
 }
 
 .complaint-row .title {
@@ -137,6 +224,8 @@ body {
   font-size: 0.85rem;
 }
 
+/* ---------- Buttons ---------- */
+
 .btn-navy {
   background: var(--navy);
   border-color: var(--navy);
@@ -145,6 +234,17 @@ body {
 .btn-navy:hover {
   background: var(--navy-dark);
   border-color: var(--navy-dark);
+  color: #fff;
+}
+
+.btn-outline-navy {
+  background: transparent;
+  border: 1.5px solid var(--navy);
+  color: var(--navy);
+}
+.btn-outline-navy:hover {
+  background: var(--navy);
+  border-color: var(--navy);
   color: #fff;
 }
 
@@ -194,5 +294,85 @@ body {
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-bottom: 1rem;
+  font-weight: 500;
+}
+
+/* ---------- Quick-access tiles (welcome / entry screens) ---------- */
+
+.quick-tile {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 1.35rem 1.1rem;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.quick-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(27, 94, 63, 0.12);
+  border-color: var(--mint-deep);
+}
+.quick-tile-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  margin-bottom: 0.85rem;
+}
+.quick-tile-icon.qt-forest { background: var(--mint); color: var(--navy); }
+.quick-tile-icon.qt-sage { background: #E4F0E9; color: var(--teal); }
+.quick-tile .qt-title {
+  font-weight: 600;
+  color: var(--ink);
+}
+.quick-tile .qt-sub {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  margin-top: 0.1rem;
+}
+
+/* ---------- Welcome hero ---------- */
+
+.welcome-hero {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--teal) 100%);
+  color: #fff;
+  border-radius: 0 0 32px 32px;
+  padding: 3.25rem 1.5rem 3rem;
+  position: relative;
+  overflow: hidden;
+}
+.welcome-hero::after {
+  content: "";
+  position: absolute;
+  bottom: -70px;
+  left: -40px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+}
+.welcome-hero .eyebrow-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  margin: 0 auto 1rem;
+}
+.welcome-hero p {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.section-label {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
   font-weight: 500;
 }

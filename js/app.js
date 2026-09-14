@@ -45,6 +45,15 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Two-letter initials for avatar circles, e.g. "Alex Rao" -> "AR"
+function initials(name) {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
+}
+
 function login(userIdentifier, password = null) {
   const user = getUserByPrnOrEmail(userIdentifier) || getUser(userIdentifier);
   if (!user) return false;
@@ -107,26 +116,46 @@ function renderTopbar() {
   const roleLabel = ROLE_LABELS[currentUser.role] || currentUser.role;
 
   return `
-    <div class="hct-topbar px-3 px-md-4 py-3 d-flex justify-content-between align-items-center mb-4">
-      <div>
-        <div class="brand">Hostel Complaint Tracker</div>
-        <div class="role-tag">${roleLabel} &middot; ${escapeHtml(currentUser.name)}</div>
+    <div class="hct-topbar px-3 px-md-4 pt-4 pb-4 mb-4">
+      <div class="d-flex justify-content-between align-items-center mb-1" style="position: relative; z-index: 1;">
+        <div class="d-flex align-items-center gap-3">
+          <div class="hct-avatar">${initials(currentUser.name)}</div>
+          <div>
+            <div class="brand">Hi, ${escapeHtml(currentUser.name.split(" ")[0])} 👋</div>
+            <div class="role-tag">${roleLabel} &middot; Hostel Complaint Tracker</div>
+          </div>
+        </div>
+        <button class="btn btn-outline-light btn-sm" id="logoutBtn">Log out</button>
       </div>
-      <button class="btn btn-outline-light btn-sm" id="logoutBtn">Log out</button>
     </div>
   `;
 }
 
 function renderWelcome() {
   return `
-    <div class="container py-5" style="max-width: 640px;">
-      <div class="text-center mb-5">
-        <h1 class="h3 mb-1">Hostel Complaint Tracker</h1>
-        <p style="color: var(--ink-soft);">Manage hostel complaints efficiently.</p>
-      </div>
-      <div class="d-grid gap-2">
-        <button class="btn btn-navy btn-lg" id="loginBtn">Login</button>
-        <button class="btn btn-outline-navy btn-lg" id="signupBtn">Sign up</button>
+    <div class="welcome-hero text-center">
+      <div class="eyebrow-mark">🏠</div>
+      <h1 class="h3 mb-1 fw-bold">Hostel Complaint Tracker</h1>
+      <p class="mb-0">Log issues, track fixes, and keep every hostel block accountable.</p>
+    </div>
+
+    <div class="container py-4" style="max-width: 640px;">
+      <div class="section-label mb-2">Get started</div>
+      <div class="row g-3">
+        <div class="col-6">
+          <button class="quick-tile" id="loginBtn">
+            <div class="quick-tile-icon qt-forest">→</div>
+            <div class="qt-title">Login</div>
+            <div class="qt-sub">Access your dashboard</div>
+          </button>
+        </div>
+        <div class="col-6">
+          <button class="quick-tile" id="signupBtn">
+            <div class="quick-tile-icon qt-sage">＋</div>
+            <div class="qt-title">Sign up</div>
+            <div class="qt-sub">Register as a student</div>
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -159,12 +188,15 @@ function renderLogin() {
               class="hct-account-card hct-card p-3"
               data-login="${u.id}"
             >
-              <div class="fw-medium">${escapeHtml(u.name)}</div>
-              <div
-                class="small"
-                style="color: var(--ink-soft);"
-              >
-                ${u.role === "student" ? "PRN: " + (u.prn || "") : g.label}
+              <div class="mini-avatar">${initials(u.name)}</div>
+              <div>
+                <div class="fw-medium">${escapeHtml(u.name)}</div>
+                <div
+                  class="small"
+                  style="color: var(--ink-soft);"
+                >
+                  ${u.role === "student" ? "PRN: " + (u.prn || "") : g.label}
+                </div>
               </div>
             </div>
           </div>
@@ -174,12 +206,12 @@ function renderLogin() {
   `).join("");
 
   return `
-    <div class="container py-5" style="max-width: 640px;">
-      <div class="text-center mb-4">
-        <h1 class="h3 mb-1">Login</h1>
-        <p style="color: var(--ink-soft);">Pick a demo account or use PRN / email.</p>
-      </div>
+    <div class="welcome-hero text-center py-4">
+      <h1 class="h3 mb-1 fw-bold">Welcome back</h1>
+      <p class="mb-0">Pick a demo account or sign in with your PRN / email.</p>
+    </div>
 
+    <div class="container py-4" style="max-width: 640px;">
       ${groupHtml}
 
       <div class="mt-4 pt-3 border-top">
@@ -199,13 +231,13 @@ function renderLogin() {
 
 function renderSignup() {
   return `
-    <div class="container py-5" style="max-width: 520px;">
-      <div class="text-center mb-4">
-        <h1 class="h3 mb-1">Student Registration</h1>
-        <p style="color: var(--ink-soft);">Apply to join the hostel complaint system.</p>
-      </div>
+    <div class="welcome-hero text-center py-4">
+      <h1 class="h3 mb-1 fw-bold">Student Registration</h1>
+      <p class="mb-0">Apply to join the hostel complaint system.</p>
+    </div>
 
-      <form id="signupForm">
+    <div class="container py-4" style="max-width: 520px;">
+      <form id="signupForm" class="hct-card p-4">
         <div class="mb-3">
           <label class="form-label">Full Name</label>
           <input type="text" class="form-control" id="sigName" required placeholder="Your full name">
