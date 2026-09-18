@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123d2a">
   <title>Hostel Complaint Tracker</title>
 
   <!-- Inter -->
@@ -17,6 +18,17 @@
 
   <!-- Shared project styles -->
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("hct-theme");
+        const theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (_) {}
+    })();
+  </script>
 </head>
 
 <body>

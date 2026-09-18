@@ -74,6 +74,23 @@ function logout() {
   render();
 }
 
+function getTheme() {
+  return document.documentElement.getAttribute("data-theme") || "light";
+}
+
+function setTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("hct-theme", next); } catch (_) {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", next === "dark" ? "#0d1512" : "#123d2a");
+}
+
+function toggleTheme() {
+  setTheme(getTheme() === "dark" ? "light" : "dark");
+  render();
+}
+
 function render() {
   const root = document.getElementById("app");
 
@@ -114,18 +131,32 @@ function render() {
 
 function renderTopbar() {
   const roleLabel = ROLE_LABELS[currentUser.role] || currentUser.role;
+  const dark = getTheme() === "dark";
 
   return `
-    <div class="hct-topbar px-3 px-md-4 pt-4 pb-4 mb-4">
-      <div class="d-flex justify-content-between align-items-center mb-1" style="position: relative; z-index: 1;">
-        <div class="d-flex align-items-center gap-3">
+    <div class="hct-topbar">
+      <div class="d-flex justify-content-between align-items-center gap-3">
+        <div class="d-flex align-items-center gap-3 min-w-0">
           <div class="hct-avatar">${initials(currentUser.name)}</div>
-          <div>
-            <div class="brand">Hi, ${escapeHtml(currentUser.name.split(" ")[0])} 👋</div>
-            <div class="role-tag">${roleLabel} &middot; Hostel Complaint Tracker</div>
+          <div class="min-w-0">
+            <div class="brand text-truncate">Hi, ${escapeHtml(currentUser.name.split(" ")[0])} 👋</div>
+            <div class="role-tag text-truncate">${roleLabel} &middot; Hostel Complaint Tracker</div>
           </div>
         </div>
-        <button class="btn btn-outline-light btn-sm" id="logoutBtn">Log out</button>
+
+        <div class="hct-toolbar">
+          <button
+            type="button"
+            class="hct-theme-toggle"
+            id="themeToggle"
+            aria-label="Switch theme"
+            title="${dark ? "Switch to light mode" : "Switch to dark mode"}"
+          >
+            <span aria-hidden="true">${dark ? "☀" : "☾"}</span>
+          </button>
+
+          <button class="btn btn-outline-light btn-sm" id="logoutBtn">Log out</button>
+        </div>
       </div>
     </div>
   `;
@@ -380,6 +411,9 @@ function attachViewHandlers() {
 
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) logoutBtn.addEventListener("click", logout);
+
+  const themeToggle = document.getElementById("themeToggle");
+  if (themeToggle) themeToggle.addEventListener("click", toggleTheme);
 
   if (currentUser && currentUser.role === "student") {
     attachStudentHandlers();
