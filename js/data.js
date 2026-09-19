@@ -422,6 +422,73 @@ async function recordEscalation(c, newLevel, byUserId, reason) {
     triggeredBy: byUserId || "system",
     triggeredAt: nowStamp()
   });
+
+  // Best-effort only: the escalation above is already committed, so a
+  // slow/unconfigured/failing mail step must never surface as an error to
+  // whoever triggered this (the auto-sweep or a warden's manual click).
+  try {
+    await notifyEscalation(c, newLevel, role, reason);
+  } catch (err) {
+    console.error("notifyEscalation failed:", err);
+  }
+}
+
+// ---------------- Notifications ----------------
+// Escalation-chain staff (warden/chief_warden/college_authority/principal)
+// get a placeholder address on this domain when seeded — see the seed data
+// in mysql/schema.sql. It can never receive real mail and can never
+// collide with a real one you swap in, so "is this a real address?" is
+// just this one check.
+const PLACEHOLDER_EMAIL_DOMAIN = "@replace-me.hostelcare.local";
+
+function isRealEmail(email) {
+  return !!email && !email.toLowerCase().endsWith(PLACEHOLDER_EMAIL_DOMAIN);
+}
+
+// Emails everyone holding the complaint's new escalation-target role.
+// Never throws — every failure (placeholder address, SMTP down, etc.) is
+// caught per-recipient and written to the notifications table instead of
+// propagating up to recordEscalation.
+async function notifyEscalation(c, newLevel, role, reason) {
+  const recipients = USERS.filter(u => u.role === role);
+  if (recipients.length === 0) return;
+
+  const subject = `[HostelCare] Complaint #${c.id} escalated to ${labelForLevel(newLevel)}`;
+  const body =
+    `Complaint #${c.id}: ${c.title}\n` +
+    `Category: ${c.category}\n` +
+    `Severity: ${c.severity}\n` +
+    `Hostel Block: ${c.hostelBlock || "—"}\n` +
+    `Escalated to: ${labelForLevel(newLevel)}\n` +
+    `Reason: ${reason}\n` +
+    `Time: ${nowStamp()}\n\n` +
+    `Log in to HostelCare to view and act on this complaint.`;
+
+  for (const user of recipients) {
+    if (!isRealEmail(user.email)) {
+      await logNotification(c.id, role, user.email || "(none)", subject, "skipped");
+      continue;
+    }
+
+    try {
+      await API.notify(user.email, subject, body);
+      await logNotification(c.id, role, user.email, subject, "sent");
+    } catch (err) {
+      await logNotification(c.id, role, user.email, subject, "failed");
+    }
+  }
+}
+
+// Logging is itself best-effort — a failed audit write must never mask
+// (or get mistaken for) the actual send outcome above.
+async function logNotification(complaintId, role, email, subject, status) {
+  try {
+    await API.insert("notifications", {
+      complaint_id: Number(complaintId), role, email, subject, status
+    });
+  } catch (err) {
+    console.error("logNotification failed:", err);
+  }
 }
 
 // ---------------- Dev/testing helper ----------------

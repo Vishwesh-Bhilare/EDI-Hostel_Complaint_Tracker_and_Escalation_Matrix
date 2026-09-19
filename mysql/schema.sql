@@ -12,7 +12,8 @@ CREATE TABLE users (
   name       VARCHAR(100) NOT NULL,
   role       ENUM('student', 'warden', 'chief_warden', 'college_authority', 'principal', 'maintenance', 'admin') NOT NULL,
   prn        VARCHAR(20) UNIQUE,          -- only for students
-  email      VARCHAR(100) UNIQUE,         -- only for students
+  email      VARCHAR(100) UNIQUE,         -- students, and the escalation-chain
+                                           -- staff roles (see seed data below)
   password   VARCHAR(255),                -- store a hash, not plain text
   block      VARCHAR(100),                -- hostel block (students)
   room       VARCHAR(20)                  -- room number (students)
@@ -90,17 +91,45 @@ CREATE TABLE escalations (
 );
 
 -- ===================================================
+-- NOTIFICATIONS (audit trail of escalation emails — what was sent/skipped)
+-- Purely a log: RequestHandler's "notify" action sends the email itself and
+-- doesn't touch this table; js/data.js writes one row per attempt via the
+-- normal insert action, same as complaint_history/escalations above.
+-- ===================================================
+CREATE TABLE notifications (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  complaint_id  INT NOT NULL,
+  role          VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | principal
+  email         VARCHAR(100) NOT NULL,
+  subject       VARCHAR(255) NOT NULL,
+  status        ENUM('sent', 'failed', 'skipped') NOT NULL,
+  sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (complaint_id) REFERENCES complaints(id)
+);
+
+-- ===================================================
 -- Optional seed data matching the frontend demo accounts
+--
+-- The escalation-chain staff (warden/chief_warden/college_authority/
+-- principal) get placeholder emails on a domain that can never receive
+-- real mail and can never collide with a real address: the "is this a
+-- placeholder?" check in js/data.js is just
+--   email.endsWith('@replace-me.hostelcare.local')
+-- To actually test notifications, UPDATE the relevant row's email to a
+-- real address (e.g. your own @mmcoe.edu.in) and leave the rest alone.
 -- ===================================================
 INSERT INTO users (name, role, prn, email, password, block, room) VALUES
   ('Tushar', 'student', 'B24CE1001', 'tushar@mmcoe.edu.in', 'password123', 'Devgiri Boys Hostel', 'B-204'),
   ('Mahesh', 'student', 'B24CE1002', 'mahesh@mmcoe.edu.in', 'password123', 'Devgiri Boys Hostel', 'B-118');
 
+INSERT INTO users (name, role, email) VALUES
+  ('Warden A', 'warden', 'warden@replace-me.hostelcare.local'),
+  ('Chief Warden', 'chief_warden', 'chiefwarden@replace-me.hostelcare.local'),
+  ('College Authority', 'college_authority', 'authority@replace-me.hostelcare.local'),
+  ('Principal', 'principal', 'principal@replace-me.hostelcare.local');
+
 INSERT INTO users (name, role) VALUES
-  ('Warden A', 'warden'),
-  ('Chief Warden', 'chief_warden'),
-  ('College Authority', 'college_authority'),
-  ('Principal', 'principal'),
   ('Maintenance Staff A', 'maintenance'),
   ('Maintenance Staff B', 'maintenance'),
   ('Admin', 'admin');

@@ -24,9 +24,12 @@ import java.util.Map;
  *                                        (index.html, css/, js/...) so the
  *                                        frontend is served by this same
  *                                        process instead of a second server.
- *   - POST /api                     -> read the JSON body, run it through
- *                                        JsonToSqlConverter against MySQL,
- *                                        write the JSON result back.
+ *   - POST /api                     -> read the JSON body. action:"notify"
+ *                                        goes straight to Mailer (no DB
+ *                                        involved); every other action is
+ *                                        run through JsonToSqlConverter
+ *                                        against MySQL. Either way the
+ *                                        JSON result is written back.
  */
 public class RequestHandler implements Runnable {
 
@@ -107,8 +110,13 @@ public class RequestHandler implements Runnable {
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> requestMap = (Map<String, Object>) SimpleJson.parse(body);
-            try (Connection conn = DBConnection.getConnection()) {
-                responseMap = JsonToSqlConverter.handleRequest(conn, requestMap);
+
+            if ("notify".equals(requestMap.get("action"))) {
+                responseMap = handleNotify(requestMap);
+            } else {
+                try (Connection conn = DBConnection.getConnection()) {
+                    responseMap = JsonToSqlConverter.handleRequest(conn, requestMap);
+                }
             }
         } catch (Exception e) {
             responseMap = new LinkedHashMap<>();
@@ -120,6 +128,26 @@ public class RequestHandler implements Runnable {
         byte[] bodyBytes = responseBody.getBytes(StandardCharsets.UTF_8);
         boolean isError = "error".equals(responseMap.get("status"));
         writeResponse(out, isError ? 400 : 200, bodyBytes, "application/json; charset=utf-8");
+    }
+
+    // ---------------- notify (send one email, no DB involved) ----------------
+
+    private static Map<String, Object> handleNotify(Map<String, Object> requestMap) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        try {
+            Object to = requestMap.get("to");
+            Object subject = requestMap.get("subject");
+            Object messageBody = requestMap.get("body");
+            if (to == null || subject == null || messageBody == null) {
+                throw new IllegalArgumentException("notify requires to, subject and body");
+            }
+            Mailer.send(to.toString(), subject.toString(), messageBody.toString());
+            response.put("status", "ok");
+        } catch (Exception e) {
+            response.put("status", "error");
+            response.put("message", e.getMessage());
+        }
+        return response;
     }
 
     // ---------------- Static file serving ----------------

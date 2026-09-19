@@ -26,5 +26,8 @@ const API = {
   select: (table, opts) => apiRequest("select", table, opts),
   insert: (table, data) => apiRequest("insert", table, { data }),
   update: (table, data, where) => apiRequest("update", table, { data, where }),
-  remove: (table, where) => apiRequest("delete", table, { where })
+  remove: (table, where) => apiRequest("delete", table, { where }),
+  // Not a table action — the server hands this straight to its mailer
+  // instead of touching MySQL. See jdbc/RequestHandler.java#handleNotify.
+  notify: (to, subject, body) => apiRequest("notify", null, { to, subject, body })
 };

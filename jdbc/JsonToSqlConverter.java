@@ -51,6 +51,8 @@ public class JsonToSqlConverter {
                 "id", "complaint_id", "note", "created_at")));
         TABLE_COLUMNS.put("escalations", new HashSet<>(Arrays.asList(
                 "id", "complaint_id", "level", "escalated_to_role", "reason", "triggered_by", "triggered_at")));
+        TABLE_COLUMNS.put("notifications", new HashSet<>(Arrays.asList(
+                "id", "complaint_id", "role", "email", "subject", "status", "sent_at")));
     }
 
     public static Map<String, Object> handleRequest(Connection conn, Map<String, Object> request) {
