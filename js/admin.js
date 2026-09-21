@@ -93,7 +93,12 @@ function attachAdminHandlers() {
 
   document.getElementById("approveConfirm").addEventListener("click", async () => {
     const room = document.getElementById("approveRoom").value.trim();
-    await approveRegistration(_approveTargetId, room || null);
+    try {
+      await approveRegistration(_approveTargetId, room || null);
+    } catch (err) {
+      alert("Could not approve registration: " + err.message);
+      return;
+    }
     approveModal.hide();
     render();
   });
@@ -108,7 +113,12 @@ function attachAdminHandlers() {
 
   document.getElementById("rejectConfirm").addEventListener("click", async () => {
     const reason = document.getElementById("rejectReason").value.trim();
-    await rejectRegistration(_approveTargetId, reason);
+    try {
+      await rejectRegistration(_approveTargetId, reason);
+    } catch (err) {
+      alert("Could not reject registration: " + err.message);
+      return;
+    }
     rejectModal.hide();
     render();
   });

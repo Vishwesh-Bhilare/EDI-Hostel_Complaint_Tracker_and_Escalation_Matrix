@@ -252,6 +252,7 @@ async function rejectRegistration(regId, reason) {
   await API.update("pending_registrations", { status: "rejected", rejection_reason: rejectionReason }, { id: Number(regId) });
   reg.status = "rejected";
   reg.rejectionReason = rejectionReason;
+  PENDING_REGISTRATIONS = PENDING_REGISTRATIONS.filter(r => r.id !== regId);
 }
 
 function getPendingRegistrations() {
