@@ -55,7 +55,7 @@ SMTP_FROM = ""   # optional — leave blank to just send as SMTP_USER
 DB_HOST = os.environ.get("HOSTELCARE_DB_HOST", "localhost")
 DB_PORT = os.environ.get("HOSTELCARE_DB_PORT", "3306")
 DB_USER = os.environ.get("HOSTELCARE_DB_USER", "root")
-DB_PASSWORD = os.environ.get("HOSTELCARE_DB_PASSWORD", "Sahil@2006#")
+DB_PASSWORD = os.environ.get("HOSTELCARE_DB_PASSWORD", "root123")
 
 backend_proc = None
 
