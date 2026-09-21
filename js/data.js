@@ -395,6 +395,20 @@ async function escalateManually(complaintId, byUserId, reason) {
   await recordEscalation(c, c.escalationLevel + 1, byUserId, reason || "Manually escalated");
 }
 
+// Explicit final escalation for the "Escalate & notify Principal" action.
+// Record every intervening hand-off so the Chief Warden and College Authority
+// audit trails and notifications remain complete before the complaint reaches
+// the Principal.
+async function escalateAndNotifyPrincipal(complaintId, byUserId) {
+  const c = COMPLAINTS.find(x => x.id === complaintId);
+  if (!c || c.escalationLevel >= 3 || c.status === "Resolved") return;
+
+  while (c.escalationLevel < 3) {
+    await recordEscalation(c, c.escalationLevel + 1, byUserId,
+      "Escalated to Principal with notification");
+  }
+}
+
 // Shared by both the auto-sweep and manual escalation. Never skips a level.
 async function recordEscalation(c, newLevel, byUserId, reason) {
   const role = roleForLevel(newLevel);
@@ -435,47 +449,56 @@ async function recordEscalation(c, newLevel, byUserId, reason) {
 }
 
 // ---------------- Notifications ----------------
-// Escalation-chain staff (warden/chief_warden/college_authority/principal)
-// get a placeholder address on this domain when seeded — see the seed data
-// in mysql/schema.sql. It can never receive real mail and can never
-// collide with a real one you swap in, so "is this a real address?" is
-// just this one check.
+// Staff addresses are configured in the users table. Seeded staff addresses use
+// this placeholder domain so a fresh local installation cannot accidentally
+// send mail outside the system.
 const PLACEHOLDER_EMAIL_DOMAIN = "@replace-me.hostelcare.local";
 
 function isRealEmail(email) {
   return !!email && !email.toLowerCase().endsWith(PLACEHOLDER_EMAIL_DOMAIN);
 }
 
-// Emails everyone holding the complaint's new escalation-target role.
-// Never throws — every failure (placeholder address, SMTP down, etc.) is
-// caught per-recipient and written to the notifications table instead of
-// propagating up to recordEscalation.
+// An escalation has two audiences: the student who raised the complaint and
+// the authority receiving it. This makes the SMTP account only the sender;
+// the concerned student's stored email is always the student recipient.
+// Each delivery is independent so an unavailable address never prevents the
+// complaint from moving to the next level in the escalation chain.
 async function notifyEscalation(c, newLevel, role, reason) {
-  const recipients = USERS.filter(u => u.role === role);
-  if (recipients.length === 0) return;
+  const student = getUser(c.studentId);
+  const authorityRecipients = usersByRole(role);
+  const recipients = [];
 
-  const subject = `[HostelCare] Complaint #${c.id} escalated to ${labelForLevel(newLevel)}`;
-  const body =
+  if (student) recipients.push({ user: student, audience: "student" });
+  authorityRecipients.forEach(user => recipients.push({ user, audience: role }));
+
+  const authorityLabel = labelForLevel(newLevel);
+  const subject = `[HostelCare] Complaint #${c.id} escalated to ${authorityLabel}`;
+  const details =
     `Complaint #${c.id}: ${c.title}\n` +
     `Category: ${c.category}\n` +
     `Severity: ${c.severity}\n` +
     `Hostel Block: ${c.hostelBlock || "—"}\n` +
-    `Escalated to: ${labelForLevel(newLevel)}\n` +
+    `Escalated to: ${authorityLabel}\n` +
     `Reason: ${reason}\n` +
-    `Time: ${nowStamp()}\n\n` +
-    `Log in to HostelCare to view and act on this complaint.`;
+    `Time: ${nowStamp()}\n\n`;
 
-  for (const user of recipients) {
+  for (const { user, audience } of recipients) {
+    const body = audience === "student"
+      ? `Your complaint has been forwarded to ${authorityLabel}.\n\n${details}` +
+        `You will receive updates here as the complaint is handled.`
+      : `A complaint has been forwarded to your queue.\n\n${details}` +
+        `Log in to HostelCare to view and act on this complaint.`;
+
     if (!isRealEmail(user.email)) {
-      await logNotification(c.id, role, user.email || "(none)", subject, "skipped");
+      await logNotification(c.id, audience, user.email || "(none)", subject, "skipped");
       continue;
     }
 
     try {
       await API.notify(user.email, subject, body);
-      await logNotification(c.id, role, user.email, subject, "sent");
+      await logNotification(c.id, audience, user.email, subject, "sent");
     } catch (err) {
-      await logNotification(c.id, role, user.email, subject, "failed");
+      await logNotification(c.id, audience, user.email, subject, "failed");
     }
   }
 }
@@ -561,7 +584,7 @@ function complaintsForMaintenance(maintenanceId) {
 }
 
 function activeComplaintsForWarden() {
-  return COMPLAINTS.filter(c => c.status !== "Resolved")
+  return COMPLAINTS.filter(c => c.escalationLevel === 0 && c.status !== "Resolved")
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 

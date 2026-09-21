@@ -7,6 +7,20 @@
 let _authorityTab = "queue";
 let _escalateTargetId = null;
 
+
+function escalateAndNotifyButtonHtml(complaintId) {
+  return `<button class="btn btn-outline-danger btn-sm" data-escalate-and-notify="${complaintId}">Escalate &amp; notify Principal</button>`;
+}
+
+function attachEscalateAndNotifyHandlers() {
+  document.querySelectorAll("[data-escalate-and-notify]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      await escalateAndNotifyPrincipal(btn.getAttribute("data-escalate-and-notify"), currentUser.id);
+      render();
+    });
+  });
+}
+
 function renderAuthorityView(role) {
   const level = levelForRole(role);
   const label = labelForLevel(level);
@@ -71,8 +85,8 @@ function renderAuthorityQueueList(list, level) {
         </div>
         <div class="mt-3 d-flex gap-2 flex-wrap">
           <button class="btn btn-teal btn-sm" data-authority-resolve="${c.id}">Resolve</button>
-          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate further</button>` : ""}
-          ${debugEscalateButtonHtml(c.id)}
+          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate to next authority</button>` : ""}
+          ${canEscalateFurther ? escalateAndNotifyButtonHtml(c.id) : ""}
         </div>
       </div>
     `;
@@ -133,7 +147,7 @@ function attachAuthorityHandlers(role) {
 // renderAuthorityQueueSection() — shared by the standalone view and by the
 // Principal dashboard's embedded queue tab.
 function attachAuthorityQueueHandlers(level) {
-  attachDebugEscalateHandlers();
+  if (level < 3) attachEscalateAndNotifyHandlers();
   document.querySelectorAll("#authorityTabs [data-atab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _authorityTab = btn.getAttribute("data-atab");
