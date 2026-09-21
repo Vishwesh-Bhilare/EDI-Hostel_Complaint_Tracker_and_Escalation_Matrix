@@ -14,7 +14,7 @@ public class DBConnection {
 
     private static final String URL = envOrDefault("HOSTELCARE_DB_URL", DEFAULT_URL);
     private static final String USER = envOrDefault("HOSTELCARE_DB_USER", "root");
-    private static final String PASSWORD = envOrDefault("HOSTELCARE_DB_PASSWORD", "Sahil@2006#");
+    private static final String PASSWORD = envOrDefault("HOSTELCARE_DB_PASSWORD", "root123");
 
     public static Connection getConnection() throws SQLException {
         try {

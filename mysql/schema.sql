@@ -120,8 +120,8 @@ CREATE TABLE notifications (
 -- real address (e.g. your own @mmcoe.edu.in) and leave the rest alone.
 -- ===================================================
 INSERT INTO users (name, role, prn, email, password, block, room) VALUES
-  ('Tushar', 'student', 'B24CE1001', 'tushar@mmcoe.edu.in', 'password123', 'Devgiri Boys Hostel', 'B-204'),
-  ('Mahesh', 'student', 'B24CE1002', 'mahesh@mmcoe.edu.in', 'password123', 'Devgiri Boys Hostel', 'B-118');
+  ('Tushar', 'student', 'B24CE1001', 'tusharborate2024.comp@mmcoe.edu.in', '12345678', 'Devgiri Boys Hostel', 'B-204'),
+  ('Mahesh', 'student', 'B24CE1009', 'maheshgaikwad2024.comp@mmcoe.edu.in', '12345678', 'Devgiri Boys Hostel', 'B-118');
 
 INSERT INTO users (name, role, email) VALUES
   ('Warden A', 'warden', 'warden@replace-me.hostelcare.local'),
