@@ -99,7 +99,7 @@ CREATE TABLE escalations (
 CREATE TABLE notifications (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id  INT NOT NULL,
-  role          VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | principal
+  role          VARCHAR(30) NOT NULL,       -- student | chief_warden | college_authority | principal
   email         VARCHAR(100) NOT NULL,
   subject       VARCHAR(255) NOT NULL,
   status        ENUM('sent', 'failed', 'skipped') NOT NULL,
