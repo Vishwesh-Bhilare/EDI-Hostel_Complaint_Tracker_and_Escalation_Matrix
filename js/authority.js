@@ -1,6 +1,6 @@
 /* Shared view for the two escalation authorities: Chief Warden (level 1)
    and College Authority (level 2). The College Authority's next hand-off is
-   back to the Warden at level 3. */
+   to the Principal at level 3. */
 
 let _authorityTab = "queue";
 let _escalateTargetId = null;

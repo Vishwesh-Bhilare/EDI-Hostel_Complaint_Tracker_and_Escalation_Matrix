@@ -1,6 +1,5 @@
-/* Principal dashboard for organization-wide monitoring. The operational
-   escalation route ends by returning the complaint to the Warden, so the
-   Principal does not own an escalation queue. */
+/* Principal dashboard for organization-wide monitoring and final-level
+   escalations. */
 
 let _principalTab = "overview";
 let _principalFilters = { block: "all", status: "all", severity: "all" };
@@ -37,13 +36,13 @@ function renderPrincipalOverview() {
     { label: "Currently open", value: s.open, tone: "" },
     { label: "Resolved", value: s.resolved, tone: "success" },
     { label: "Currently escalated", value: s.escalated, tone: "warn" },
-    { label: "Returned to Warden", value: s.breachedFinal, tone: "danger" },
+    { label: "Escalated to Principal", value: s.breachedFinal, tone: "danger" },
     { label: "SLA compliance (never escalated)", value: s.complianceRate + "%", tone: "" }
   ];
 
   const banner = s.breachedFinal ? `
     <div class="principal-alert-banner">
-      <span>&#9888; ${s.breachedFinal} complaint${s.breachedFinal > 1 ? "s" : ""} completed the escalation route and returned to the Warden.</span>
+      <span>&#9888; ${s.breachedFinal} complaint${s.breachedFinal > 1 ? "s" : ""} reached the final escalation level and require Principal attention.</span>
     </div>
   ` : "";
 

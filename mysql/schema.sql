@@ -53,10 +53,10 @@ CREATE TABLE complaints (
   student_id          INT NOT NULL,          -- who filed it
   hostel_block        VARCHAR(100),          -- bound from the student's block at creation
   assigned_to         INT,                   -- maintenance staff (nullable until assigned)
-  escalation_level    TINYINT NOT NULL DEFAULT 0,  -- 0=Warden, 1=Chief Warden, 2=College Authority, 3=Warden (returned)
+  escalation_level    TINYINT NOT NULL DEFAULT 0,  -- 0=Warden, 1=Chief Warden, 2=College Authority, 3=Principal
   response_due_at     TIMESTAMP NULL,        -- SLA: must be assigned/acknowledged by this time
   resolution_due_at   TIMESTAMP NULL,        -- SLA: must be resolved by this time
-  final_due_at        TIMESTAMP NULL,        -- final threshold: return to the Warden after the authority chain
+  final_due_at        TIMESTAMP NULL,        -- final threshold: escalate to the Principal after the authority chain
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (student_id) REFERENCES users(id),
@@ -82,7 +82,7 @@ CREATE TABLE escalations (
   id                 INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id       INT NOT NULL,
   level              TINYINT NOT NULL,          -- 1, 2 or 3
-  escalated_to_role  VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | warden
+  escalated_to_role  VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | principal
   reason             VARCHAR(255) NOT NULL,      -- "SLA breach (auto)" or a manual override reason
   triggered_by       VARCHAR(20) NOT NULL DEFAULT 'system', -- 'system' or a user id, for manual escalations
   triggered_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

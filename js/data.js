@@ -50,12 +50,11 @@ const SLA_POLICY = {
 // ---------------- Escalation chain ----------------
 // Level 0 = with the Warden (default owner, no escalation yet).
 // Levels 1-3 escalate up this chain, one step at a time, never skipping.
-// The final hand-off intentionally returns the complaint to the Warden; it
-// does not resolve it and it does not send it to the Principal.
+// The final hand-off goes to the Principal; it does not resolve the complaint.
 const ESCALATION_CHAIN = [
   { level: 1, role: "chief_warden",      label: "Chief Warden" },
   { level: 2, role: "college_authority", label: "College Authority" },
-  { level: 3, role: "warden",            label: "Warden" }
+  { level: 3, role: "principal",         label: "Principal" }
 ];
 
 function roleForLevel(level) {
@@ -502,7 +501,10 @@ async function notifyEscalation(c, newLevel, role, reason) {
     `Complaint #${c.id}: ${c.title}\n` +
     `Category: ${c.category}\n` +
     `Severity: ${c.severity}\n` +
+    `Current status: ${c.status}\n` +
     `Hostel Block: ${c.hostelBlock || "—"}\n` +
+    `Submitted by: ${student ? student.name : "Resident"}\n` +
+    `Description: ${c.description || "—"}\n` +
     `Escalated to: ${authorityLabel}\n` +
     `Reason: ${reason}\n` +
     `Time: ${nowStamp()}\n\n`;
@@ -511,7 +513,8 @@ async function notifyEscalation(c, newLevel, role, reason) {
     const body = audience === "student"
       ? `Your complaint has been forwarded to ${authorityLabel}.\n\n${details}` +
         `You will receive updates here as the complaint is handled.`
-      : `A complaint has been forwarded to your queue.\n\n${details}` +
+      : `Hello ${user.name || authorityLabel},\n\n` +
+        `A complaint has been escalated to you as ${authorityLabel}.\n\n${details}` +
         `Log in to HostelCare to view and act on this complaint.`;
 
     await notifyRecipient(c.id, audience, user, subject, body);
@@ -599,8 +602,7 @@ function complaintsForMaintenance(maintenanceId) {
 }
 
 function activeComplaintsForWarden() {
-  // Level 3 is the final hand-off back to the Warden.
-  return COMPLAINTS.filter(c => (c.escalationLevel === 0 || c.escalationLevel === 3) && c.status !== "Resolved")
+  return COMPLAINTS.filter(c => c.escalationLevel === 0 && c.status !== "Resolved")
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 
