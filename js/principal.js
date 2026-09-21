@@ -1,13 +1,9 @@
-/* Principal dashboard. Two jobs:
-   1. Monitor everyone's activity — every complaint, every block, every role,
-      not scoped like a warden's view (this is the "clean dashboard" ask).
-   2. Own the top of the escalation chain (Level 3) — reuses the same queue
-      component the other authorities use, via js/authority.js. */
+/* Principal dashboard for organization-wide monitoring. The operational
+   escalation route ends by returning the complaint to the Warden, so the
+   Principal does not own an escalation queue. */
 
 let _principalTab = "overview";
 let _principalFilters = { block: "all", status: "all", severity: "all" };
-
-const PRINCIPAL_LEVEL = 3; // Principal sits at the top of the chain
 
 function renderPrincipalView() {
   return `
@@ -23,22 +19,14 @@ function renderPrincipalView() {
         <li class="nav-item"><button class="nav-link ${_principalTab === "overview" ? "active" : ""}" data-ptab="overview">Overview</button></li>
         <li class="nav-item"><button class="nav-link ${_principalTab === "all" ? "active" : ""}" data-ptab="all">All complaints</button></li>
         <li class="nav-item"><button class="nav-link ${_principalTab === "escalations" ? "active" : ""}" data-ptab="escalations">Escalation log</button></li>
-        <li class="nav-item">
-          <button class="nav-link ${_principalTab === "queue" ? "active" : ""}" data-ptab="queue">
-            My queue (${complaintsAtLevel(PRINCIPAL_LEVEL).length})
-            ${complaintsAtLevel(PRINCIPAL_LEVEL).length ? '<span class="ms-1">&#9679;</span>' : ""}
-          </button>
-        </li>
       </ul>
 
       ${
         _principalTab === "overview" ? renderPrincipalOverview() :
         _principalTab === "all" ? renderPrincipalAllComplaints() :
-        _principalTab === "escalations" ? renderPrincipalEscalationLog() :
-        renderAuthorityQueueSection(PRINCIPAL_LEVEL)
+        renderPrincipalEscalationLog()
       }
     </div>
-    ${authorityModalsHtml()}
   `;
 }
 
@@ -49,14 +37,13 @@ function renderPrincipalOverview() {
     { label: "Currently open", value: s.open, tone: "" },
     { label: "Resolved", value: s.resolved, tone: "success" },
     { label: "Currently escalated", value: s.escalated, tone: "warn" },
-    { label: "At Principal (final level)", value: s.breachedFinal, tone: "danger" },
+    { label: "Returned to Warden", value: s.breachedFinal, tone: "danger" },
     { label: "SLA compliance (never escalated)", value: s.complianceRate + "%", tone: "" }
   ];
 
   const banner = s.breachedFinal ? `
     <div class="principal-alert-banner">
-      <span>&#9888; ${s.breachedFinal} complaint${s.breachedFinal > 1 ? "s" : ""} escalated all the way to you and waiting.</span>
-      <button class="btn btn-danger btn-sm" id="pGoToQueueBtn">View my queue</button>
+      <span>&#9888; ${s.breachedFinal} complaint${s.breachedFinal > 1 ? "s" : ""} completed the escalation route and returned to the Warden.</span>
     </div>
   ` : "";
 
@@ -189,14 +176,6 @@ function attachPrincipalHandlers() {
     });
   });
 
-  const goToQueueBtn = document.getElementById("pGoToQueueBtn");
-  if (goToQueueBtn) {
-    goToQueueBtn.addEventListener("click", () => {
-      _principalTab = "queue";
-      render();
-    });
-  }
-
   if (_principalTab === "all") {
     const blockSel = document.getElementById("pFilterBlock");
     const statusSel = document.getElementById("pFilterStatus");
@@ -204,9 +183,5 @@ function attachPrincipalHandlers() {
     if (blockSel) blockSel.addEventListener("change", (e) => { _principalFilters.block = e.target.value; render(); });
     if (statusSel) statusSel.addEventListener("change", (e) => { _principalFilters.status = e.target.value; render(); });
     if (severitySel) severitySel.addEventListener("change", (e) => { _principalFilters.severity = e.target.value; render(); });
-  }
-
-  if (_principalTab === "queue") {
-    attachAuthorityQueueHandlers(PRINCIPAL_LEVEL);
   }
 }

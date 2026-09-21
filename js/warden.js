@@ -111,9 +111,8 @@ function renderWardenActiveList(list) {
         <button class="btn btn-outline-secondary btn-sm" data-reassign="${c.id}">Reassign</button>
       `;
     }
-    // Manual escalation is only meaningful while the complaint is still
-    // sitting with the Warden (level 0) — once it's been escalated, the
-    // authority holding it uses their own "Escalate further" action instead.
+    // A returned level-3 complaint is again in the Warden's queue, but it has
+    // completed the configured escalation loop and cannot escalate further.
     const canEscalate = c.escalationLevel === 0;
     return `
       <div class="complaint-row p-3">
@@ -136,7 +135,6 @@ function renderWardenActiveList(list) {
           ${actions}
           <button class="btn btn-outline-secondary btn-sm" data-severity="${c.id}">Change severity</button>
           ${canEscalate ? `<button class="btn btn-outline-danger btn-sm" data-warden-escalate="${c.id}">Escalate to Chief Warden</button>` : ""}
-          ${escalateAndNotifyButtonHtml(c.id)}
         </div>
       </div>
     `;
@@ -162,7 +160,6 @@ function renderWardenHistoryList(list) {
 }
 
 function attachWardenHandlers() {
-  attachEscalateAndNotifyHandlers();
   document.querySelectorAll("#wardenTabs [data-tab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _wardenTab = btn.getAttribute("data-tab");

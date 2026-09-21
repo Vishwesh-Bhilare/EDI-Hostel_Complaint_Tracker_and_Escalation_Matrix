@@ -1,25 +1,9 @@
-/* Shared view for the two mid-chain escalation authorities: Chief Warden
-   (level 1) and College Authority (level 2). Principal (level 3) reuses
-   renderAuthorityQueueSection()/attachAuthorityQueueHandlers() below inside
-   its own dashboard in js/principal.js, since it also owns a queue at the
-   top of the chain in addition to its org-wide monitoring view. */
+/* Shared view for the two escalation authorities: Chief Warden (level 1)
+   and College Authority (level 2). The College Authority's next hand-off is
+   back to the Warden at level 3. */
 
 let _authorityTab = "queue";
 let _escalateTargetId = null;
-
-
-function escalateAndNotifyButtonHtml(complaintId) {
-  return `<button class="btn btn-outline-danger btn-sm" data-escalate-and-notify="${complaintId}">Escalate &amp; notify Principal</button>`;
-}
-
-function attachEscalateAndNotifyHandlers() {
-  document.querySelectorAll("[data-escalate-and-notify]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await escalateAndNotifyPrincipal(btn.getAttribute("data-escalate-and-notify"), currentUser.id);
-      render();
-    });
-  });
-}
 
 function renderAuthorityView(role) {
   const level = levelForRole(role);
@@ -39,8 +23,7 @@ function renderAuthorityView(role) {
   `;
 }
 
-// Reusable body: tabs + list + "handled by me" history. Used directly by
-// the two mid-chain roles, and embedded inside the Principal dashboard.
+// Reusable body: tabs + list + "handled by me" history.
 function renderAuthorityQueueSection(level) {
   const queue = complaintsAtLevel(level);
   const handled = complaintsEverAtLevel(level).filter(c => c.escalationLevel !== level || c.status === "Resolved");
@@ -85,8 +68,7 @@ function renderAuthorityQueueList(list, level) {
         </div>
         <div class="mt-3 d-flex gap-2 flex-wrap">
           <button class="btn btn-teal btn-sm" data-authority-resolve="${c.id}">Resolve</button>
-          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate to next authority</button>` : ""}
-          ${canEscalateFurther ? escalateAndNotifyButtonHtml(c.id) : ""}
+          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate to ${labelForLevel(level + 1)}</button>` : ""}
         </div>
       </div>
     `;
@@ -143,11 +125,8 @@ function attachAuthorityHandlers(role) {
   attachAuthorityQueueHandlers(level);
 }
 
-// Wires up the tabs/actions for whichever container renders
-// renderAuthorityQueueSection() — shared by the standalone view and by the
-// Principal dashboard's embedded queue tab.
+// Wires up the tabs and actions for an authority queue.
 function attachAuthorityQueueHandlers(level) {
-  if (level < 3) attachEscalateAndNotifyHandlers();
   document.querySelectorAll("#authorityTabs [data-atab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _authorityTab = btn.getAttribute("data-atab");

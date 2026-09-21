@@ -50,10 +50,12 @@ const SLA_POLICY = {
 // ---------------- Escalation chain ----------------
 // Level 0 = with the Warden (default owner, no escalation yet).
 // Levels 1-3 escalate up this chain, one step at a time, never skipping.
+// The final hand-off intentionally returns the complaint to the Warden; it
+// does not resolve it and it does not send it to the Principal.
 const ESCALATION_CHAIN = [
   { level: 1, role: "chief_warden",      label: "Chief Warden" },
   { level: 2, role: "college_authority", label: "College Authority" },
-  { level: 3, role: "principal",         label: "Principal" }
+  { level: 3, role: "warden",            label: "Warden" }
 ];
 
 function roleForLevel(level) {
@@ -298,6 +300,7 @@ async function addComplaint({ title, category, description, photo, studentId }) 
     history: [{ at: nowStamp(), text: note }]
   };
   COMPLAINTS.unshift(c);
+  await notifyStudentStatus(c, "Complaint submitted");
   return c;
 }
 
@@ -347,6 +350,7 @@ async function assignComplaint(complaintId, maintenanceId, wardenId) {
   c.assignedTo = maintenanceId;
   c.status = "Assigned";
   c.history.push({ at: nowStamp(), text: note });
+  await notifyStudentStatus(c, note);
 }
 
 async function markDone(complaintId, maintenanceId, photo) {
@@ -360,6 +364,7 @@ async function markDone(complaintId, maintenanceId, photo) {
   c.status = "Under Review";
   if (photo) c.completionPhoto = photo; // client-side only, see note at top of file
   c.history.push({ at: nowStamp(), text: note });
+  await notifyStudentStatus(c, note);
 }
 
 async function resolveComplaint(complaintId, resolverId) {
@@ -372,6 +377,7 @@ async function resolveComplaint(complaintId, resolverId) {
 
   c.status = "Resolved";
   c.history.push({ at: nowStamp(), text: note });
+  await notifyStudentStatus(c, note);
 }
 
 async function reassignComplaint(complaintId, wardenId) {
@@ -384,6 +390,7 @@ async function reassignComplaint(complaintId, wardenId) {
 
   c.status = "Assigned";
   c.history.push({ at: nowStamp(), text: note });
+  await notifyStudentStatus(c, note);
 }
 
 // Manual escalation: an authority can push a complaint up one level early
@@ -393,20 +400,6 @@ async function escalateManually(complaintId, byUserId, reason) {
   if (!c || c.escalationLevel >= 3 || c.status === "Resolved") return;
 
   await recordEscalation(c, c.escalationLevel + 1, byUserId, reason || "Manually escalated");
-}
-
-// Explicit final escalation for the "Escalate & notify Principal" action.
-// Record every intervening hand-off so the Chief Warden and College Authority
-// audit trails and notifications remain complete before the complaint reaches
-// the Principal.
-async function escalateAndNotifyPrincipal(complaintId, byUserId) {
-  const c = COMPLAINTS.find(x => x.id === complaintId);
-  if (!c || c.escalationLevel >= 3 || c.status === "Resolved") return;
-
-  while (c.escalationLevel < 3) {
-    await recordEscalation(c, c.escalationLevel + 1, byUserId,
-      "Escalated to Principal with notification");
-  }
 }
 
 // Shared by both the auto-sweep and manual escalation. Never skips a level.
@@ -458,11 +451,43 @@ function isRealEmail(email) {
   return !!email && !email.toLowerCase().endsWith(PLACEHOLDER_EMAIL_DOMAIN);
 }
 
+// Sends and audits one message without allowing a mail failure to interrupt a
+// complaint workflow. Every status update and escalation uses this helper.
+async function notifyRecipient(complaintId, audience, user, subject, body) {
+  if (!user || !isRealEmail(user.email)) {
+    await logNotification(complaintId, audience, (user && user.email) || "(none)", subject, "skipped");
+    return;
+  }
+
+  try {
+    await API.notify(user.email, subject, body);
+    await logNotification(complaintId, audience, user.email, subject, "sent");
+  } catch (err) {
+    console.error("Notification delivery failed:", err);
+    await logNotification(complaintId, audience, user.email, subject, "failed");
+  }
+}
+
+// The student is notified for every persisted status change, including the
+// initial submitted/Pending state. This is deliberately separate from the
+// escalation email so a complaint still has a clear current-status update.
+async function notifyStudentStatus(c, event) {
+  const student = getUser(c.studentId);
+  const subject = `[HostelCare] Complaint #${c.id} status: ${c.status}`;
+  const body =
+    `${event}\n\n` +
+    `Complaint #${c.id}: ${c.title}\n` +
+    `Current status: ${c.status}\n` +
+    `Current queue: ${labelForLevel(c.escalationLevel)}\n` +
+    `Severity: ${c.severity}\n` +
+    `Time: ${nowStamp()}\n\n` +
+    `You will receive another update when the complaint status changes.`;
+  await notifyRecipient(c.id, "student", student, subject, body);
+}
+
 // An escalation has two audiences: the student who raised the complaint and
-// the authority receiving it. This makes the SMTP account only the sender;
-// the concerned student's stored email is always the student recipient.
-// Each delivery is independent so an unavailable address never prevents the
-// complaint from moving to the next level in the escalation chain.
+// the authority receiving it. Each delivery is independent so an unavailable
+// address never prevents the complaint from moving to the next queue.
 async function notifyEscalation(c, newLevel, role, reason) {
   const student = getUser(c.studentId);
   const authorityRecipients = usersByRole(role);
@@ -489,17 +514,7 @@ async function notifyEscalation(c, newLevel, role, reason) {
       : `A complaint has been forwarded to your queue.\n\n${details}` +
         `Log in to HostelCare to view and act on this complaint.`;
 
-    if (!isRealEmail(user.email)) {
-      await logNotification(c.id, audience, user.email || "(none)", subject, "skipped");
-      continue;
-    }
-
-    try {
-      await API.notify(user.email, subject, body);
-      await logNotification(c.id, audience, user.email, subject, "sent");
-    } catch (err) {
-      await logNotification(c.id, audience, user.email, subject, "failed");
-    }
+    await notifyRecipient(c.id, audience, user, subject, body);
   }
 }
 
@@ -584,7 +599,8 @@ function complaintsForMaintenance(maintenanceId) {
 }
 
 function activeComplaintsForWarden() {
-  return COMPLAINTS.filter(c => c.escalationLevel === 0 && c.status !== "Resolved")
+  // Level 3 is the final hand-off back to the Warden.
+  return COMPLAINTS.filter(c => (c.escalationLevel === 0 || c.escalationLevel === 3) && c.status !== "Resolved")
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 
@@ -593,7 +609,7 @@ function historyComplaintsForWarden() {
 }
 
 // Complaints currently sitting with a given escalation authority (chief
-// warden / college authority / principal), most urgent (least time left) first.
+// warden / college authority), most urgent (least time left) first.
 function complaintsAtLevel(level) {
   return COMPLAINTS.filter(c => c.escalationLevel === level && c.status !== "Resolved")
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
