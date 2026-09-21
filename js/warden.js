@@ -136,6 +136,7 @@ function renderWardenActiveList(list) {
           ${actions}
           <button class="btn btn-outline-secondary btn-sm" data-severity="${c.id}">Change severity</button>
           ${canEscalate ? `<button class="btn btn-outline-danger btn-sm" data-warden-escalate="${c.id}">Escalate</button>` : ""}
+          ${debugEscalateButtonHtml(c.id)}
         </div>
       </div>
     `;
@@ -161,6 +162,7 @@ function renderWardenHistoryList(list) {
 }
 
 function attachWardenHandlers() {
+  attachDebugEscalateHandlers();
   document.querySelectorAll("#wardenTabs [data-tab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _wardenTab = btn.getAttribute("data-tab");

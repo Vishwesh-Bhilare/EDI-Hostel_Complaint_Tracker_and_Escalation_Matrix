@@ -45,6 +45,41 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ---------------- Debug: force-escalate + notify ----------------
+// Testing helper, not a normal workflow action — jumps a complaint's SLA
+// clocks into the past and immediately runs the real checkEscalations()
+// sweep (see debugForceOverdue() in js/data.js), so it exercises the actual
+// escalation + email pipeline end-to-end instead of waiting out real SLA
+// windows. Shared by warden.js (level 0) and authority.js's queue (levels
+// 1-3, including the Principal dashboard, which reuses that same queue).
+function debugEscalateButtonHtml(complaintId) {
+  return `
+    <button
+      type="button"
+      class="btn btn-outline-secondary btn-sm"
+      style="border-style: dashed;"
+      data-debug-escalate="${complaintId}"
+      title="Testing only: forces this complaint's SLA overdue and runs the real escalation + email pipeline right now"
+    >🐞 Force escalate + notify</button>
+  `;
+}
+
+function attachDebugEscalateHandlers() {
+  document.querySelectorAll("[data-debug-escalate]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Escalating…";
+      try {
+        await debugForceOverdue(btn.getAttribute("data-debug-escalate"), currentUser.id);
+      } catch (err) {
+        console.error("debugForceOverdue failed:", err);
+        alert("Debug escalate failed — see the browser console for details.");
+      }
+      render();
+    });
+  });
+}
+
 // Two-letter initials for avatar circles, e.g. "Alex Rao" -> "AR"
 function initials(name) {
   if (!name) return "?";
@@ -91,6 +126,29 @@ function toggleTheme() {
   render();
 }
 
+// Same toggle button markup used on the topbar; also needed on the
+// logged-out welcome/login/signup screens so the theme can be switched
+// before signing in, not just after.
+function themeToggleButtonHtml(extraClass = "") {
+  const dark = getTheme() === "dark";
+  return `
+    <button
+      type="button"
+      class="hct-theme-toggle ${extraClass}"
+      id="themeToggle"
+      aria-label="${dark ? "Switch to light mode" : "Switch to dark mode"}"
+      title="${dark ? "Switch to light mode" : "Switch to dark mode"}"
+    >
+      <span aria-hidden="true">${dark ? "☀" : "☾"}</span>
+    </button>
+  `;
+}
+
+function wireThemeToggle() {
+  const themeToggle = document.getElementById("themeToggle");
+  if (themeToggle) themeToggle.addEventListener("click", toggleTheme);
+}
+
 function render() {
   const root = document.getElementById("app");
 
@@ -131,7 +189,6 @@ function render() {
 
 function renderTopbar() {
   const roleLabel = ROLE_LABELS[currentUser.role] || currentUser.role;
-  const dark = getTheme() === "dark";
 
   return `
     <div class="hct-topbar">
@@ -145,16 +202,7 @@ function renderTopbar() {
         </div>
 
         <div class="hct-toolbar">
-          <button
-            type="button"
-            class="hct-theme-toggle"
-            id="themeToggle"
-            aria-label="Switch theme"
-            title="${dark ? "Switch to light mode" : "Switch to dark mode"}"
-          >
-            <span aria-hidden="true">${dark ? "☀" : "☾"}</span>
-          </button>
-
+          ${themeToggleButtonHtml()}
           <button class="btn btn-outline-light btn-sm" id="logoutBtn">Log out</button>
         </div>
       </div>
@@ -165,6 +213,7 @@ function renderTopbar() {
 function renderWelcome() {
   return `
     <div class="welcome-hero text-center">
+      ${themeToggleButtonHtml("hct-theme-toggle-floating")}
       <div class="eyebrow-mark">🏠</div>
       <h1 class="h3 mb-1 fw-bold">Hostel Complaint Tracker</h1>
       <p class="mb-0">Log issues, track fixes, and keep every hostel block accountable.</p>
@@ -238,6 +287,7 @@ function renderLogin() {
 
   return `
     <div class="welcome-hero text-center py-4">
+      ${themeToggleButtonHtml("hct-theme-toggle-floating")}
       <h1 class="h3 mb-1 fw-bold">Welcome back</h1>
       <p class="mb-0">Pick a demo account or sign in with your PRN / email.</p>
     </div>
@@ -263,6 +313,7 @@ function renderLogin() {
 function renderSignup() {
   return `
     <div class="welcome-hero text-center py-4">
+      ${themeToggleButtonHtml("hct-theme-toggle-floating")}
       <h1 class="h3 mb-1 fw-bold">Student Registration</h1>
       <p class="mb-0">Apply to join the hostel complaint system.</p>
     </div>
@@ -312,6 +363,7 @@ function renderSignup() {
 }
 
 function attachWelcomeHandlers() {
+  wireThemeToggle();
   document.getElementById("loginBtn").addEventListener("click", () => {
     appPage = "login";
     render();
@@ -324,6 +376,7 @@ function attachWelcomeHandlers() {
 }
 
 function attachLoginHandlers() {
+  wireThemeToggle();
   const root = document.getElementById("app");
 
   const loginCards = root.querySelectorAll("[data-login]");
@@ -364,6 +417,7 @@ function attachLoginHandlers() {
 }
 
 function attachSignupHandlers() {
+  wireThemeToggle();
   document.getElementById("sigSubmitBtn").addEventListener("click", async () => {
     const name = document.getElementById("sigName").value.trim();
     const prn = document.getElementById("sigPrn").value.trim();
@@ -409,11 +463,10 @@ function attachSignupHandlers() {
 function attachViewHandlers() {
   const root = document.getElementById("app");
 
+  wireThemeToggle();
+
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) logoutBtn.addEventListener("click", logout);
-
-  const themeToggle = document.getElementById("themeToggle");
-  if (themeToggle) themeToggle.addEventListener("click", toggleTheme);
 
   if (currentUser && currentUser.role === "student") {
     attachStudentHandlers();

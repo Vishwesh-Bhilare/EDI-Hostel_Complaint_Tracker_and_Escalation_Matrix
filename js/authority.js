@@ -72,6 +72,7 @@ function renderAuthorityQueueList(list, level) {
         <div class="mt-3 d-flex gap-2 flex-wrap">
           <button class="btn btn-teal btn-sm" data-authority-resolve="${c.id}">Resolve</button>
           ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate further</button>` : ""}
+          ${debugEscalateButtonHtml(c.id)}
         </div>
       </div>
     `;
@@ -132,6 +133,7 @@ function attachAuthorityHandlers(role) {
 // renderAuthorityQueueSection() — shared by the standalone view and by the
 // Principal dashboard's embedded queue tab.
 function attachAuthorityQueueHandlers(level) {
+  attachDebugEscalateHandlers();
   document.querySelectorAll("#authorityTabs [data-atab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _authorityTab = btn.getAttribute("data-atab");
