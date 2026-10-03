@@ -45,6 +45,10 @@ public class RequestHandler implements Runnable {
 
     @Override
     public void run() {
+         System.out.println(
+            "Request STARTED by: " + Thread.currentThread().getName()
+         );
+         
         try (Socket s = socket;
              InputStream in = s.getInputStream();
              OutputStream out = s.getOutputStream()) {
