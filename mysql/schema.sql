@@ -1,251 +1,135 @@
--- =====================================================================
--- Hostel Complaint Tracker & Escalation Matrix - MySQL Database Schema
---
--- DBMS Core Concepts Applied:
--- 1. Normalization:
---    - 1NF (First Normal Form): Atomic attributes, defined primary keys, no repeating groups.
---    - 2NF (Second Normal Form): In 1NF and no partial functional dependencies (single-attribute PKs).
---    - 3NF (Third Normal Form): No transitive dependencies. Extracted master entities
---      (hostel_blocks, complaint_categories) instead of duplicating text attributes.
--- 2. Referential Integrity: Foreign Keys with ON DELETE/ON UPDATE constraints.
--- 3. Load Management & Performance: B-Tree Indexes on foreign keys and search predicates
---    (status, severity, escalation_level, timestamps) to eliminate O(N) full table scans.
--- 4. High Availability & Fault Tolerance: Supported by backup database (hostelcare_backup)
---    and automated replication/failover.
--- =====================================================================
+-- Hostel Complaint Tracker - MySQL Schema
+-- Basic tables only (no views/triggers/stored procedures)
 
 CREATE DATABASE IF NOT EXISTS hostelcare;
 USE hostelcare;
 
 -- ===================================================
--- 1. HOSTEL BLOCKS (Master Table - 3NF Decomposition)
--- Eliminates update anomalies when hostel block details change.
+-- USERS (students, wardens, escalation authorities, maintenance staff, admin)
 -- ===================================================
-CREATE TABLE IF NOT EXISTS hostel_blocks (
-  id          INT AUTO_INCREMENT PRIMARY KEY,
-  block_code  VARCHAR(20) UNIQUE NOT NULL,      -- Candidate Key: e.g. 'DEVGIRI', 'SAHYADRI'
-  block_name  VARCHAR(100) NOT NULL,             -- Descriptive block name
-  total_rooms INT DEFAULT 100,                  -- Capacity
-  warden_id   INT NULL,                          -- Assigned Warden (FK to users)
-  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ===================================================
--- 2. COMPLAINT CATEGORIES (Master Table - 3NF Decomposition)
--- Enforces domain integrity and defines standard SLA parameters.
--- ===================================================
-CREATE TABLE IF NOT EXISTS complaint_categories (
-  id               INT AUTO_INCREMENT PRIMARY KEY,
-  name             VARCHAR(50) UNIQUE NOT NULL,    -- Candidate Key: 'Electrical', 'Plumbing', etc.
-  default_severity ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL DEFAULT 'Medium',
-  sla_hours        INT NOT NULL DEFAULT 48,        -- Target resolution time in hours
-  description      VARCHAR(255) NULL
-);
-
--- ===================================================
--- 3. USERS
--- Entity representing all human actors in the hostel escalation hierarchy.
--- ===================================================
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   name       VARCHAR(100) NOT NULL,
   role       ENUM('student', 'warden', 'chief_warden', 'college_authority', 'principal', 'maintenance', 'admin') NOT NULL,
-  prn        VARCHAR(20) UNIQUE,          -- Unique candidate key for students
-  email      VARCHAR(100) UNIQUE,         -- Unique candidate key for notifications
-  password   VARCHAR(255),                -- Authentication credential
-  block_id   INT NULL,                    -- Normalized Foreign Key to hostel_blocks
-  block      VARCHAR(100),                -- Backward-compatible string name
-  room       VARCHAR(20),                 -- Room number (for students)
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY (block_id) REFERENCES hostel_blocks(id) ON DELETE SET NULL
+  prn        VARCHAR(20) UNIQUE,          -- only for students
+  email      VARCHAR(100) UNIQUE,         -- students, and the escalation-chain
+                                           -- staff roles (see seed data below)
+  password   VARCHAR(255),                -- store a hash, not plain text
+  block      VARCHAR(100),                -- hostel block (students)
+  room       VARCHAR(20)                  -- room number (students)
 );
 
--- Circular FK reference for warden in hostel_blocks
-ALTER TABLE hostel_blocks
-  ADD CONSTRAINT fk_hostel_blocks_warden
-  FOREIGN KEY (warden_id) REFERENCES users(id) ON DELETE SET NULL;
-
 -- ===================================================
--- 4. PENDING REGISTRATIONS
--- Staging relation for student signups awaiting admin verification.
+-- PENDING REGISTRATIONS (student signups awaiting admin approval)
 -- ===================================================
-CREATE TABLE IF NOT EXISTS pending_registrations (
+CREATE TABLE pending_registrations (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   name              VARCHAR(100) NOT NULL,
   prn               VARCHAR(20) NOT NULL,
   email             VARCHAR(100) NOT NULL,
   password          VARCHAR(255) NOT NULL,
-  block_id          INT NULL,             -- Normalized FK
   block             VARCHAR(100) NOT NULL,
   status            ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
   rejection_reason  VARCHAR(255),
-  requested_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-  FOREIGN KEY (block_id) REFERENCES hostel_blocks(id) ON DELETE SET NULL,
-  INDEX idx_pending_status (status)
+  requested_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ===================================================
--- 5. COMPLAINTS (Core Transactional Relation)
--- Represents hostel grievances tracked across the escalation matrix.
+-- COMPLAINTS
+-- severity drives the SLA policy (response/resolution due-by) and therefore
+-- the escalation matrix. It defaults from category at creation time but the
+-- warden may correct it (e.g. a student picking an inflated category for a
+-- minor issue) via updateComplaintSeverity() in js/data.js.
 -- ===================================================
-CREATE TABLE IF NOT EXISTS complaints (
+CREATE TABLE complaints (
   id                  INT AUTO_INCREMENT PRIMARY KEY,
   title               VARCHAR(150) NOT NULL,
-  category_id         INT NULL,              -- Normalized FK to complaint_categories
-  category            VARCHAR(50) NOT NULL,  -- Backward-compatible category name
+  category            VARCHAR(50) NOT NULL,
   severity            ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
   description         TEXT,
-  photo               VARCHAR(255),
-  completion_photo    VARCHAR(255),
+  photo               VARCHAR(255),          -- path/URL to uploaded photo
+  completion_photo    VARCHAR(255),          -- path/URL to maintenance completion photo
   status              ENUM('Pending', 'Assigned', 'Under Review', 'Resolved') NOT NULL DEFAULT 'Pending',
-  student_id          INT NOT NULL,          -- FK: Student who registered complaint
-  block_id            INT NULL,              -- Normalized FK to hostel_blocks
-  hostel_block        VARCHAR(100),          -- Backward-compatible block name
-  assigned_to         INT NULL,              -- FK: Maintenance personnel assigned
+  student_id          INT NOT NULL,          -- who filed it
+  hostel_block        VARCHAR(100),          -- bound from the student's block at creation
+  assigned_to         INT,                   -- maintenance staff (nullable until assigned)
   escalation_level    TINYINT NOT NULL DEFAULT 0,  -- 0=Warden, 1=Chief Warden, 2=College Authority, 3=Principal
-  response_due_at     TIMESTAMP NULL,        -- SLA Acknowledgment deadline
-  resolution_due_at   TIMESTAMP NULL,        -- SLA Resolution deadline
-  final_due_at        TIMESTAMP NULL,        -- SLA Escalation ceiling deadline
+  response_due_at     TIMESTAMP NULL,        -- SLA: must be assigned/acknowledged by this time
+  resolution_due_at   TIMESTAMP NULL,        -- SLA: must be resolved by this time
+  final_due_at        TIMESTAMP NULL,        -- final threshold: escalate to the Principal after the authority chain
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
-  FOREIGN KEY (category_id) REFERENCES complaint_categories(id) ON DELETE SET NULL,
-  FOREIGN KEY (block_id) REFERENCES hostel_blocks(id) ON DELETE SET NULL,
-
-  -- B-Tree Performance Indexes to handle query load without server processing delays
-  INDEX idx_complaints_status (status),
-  INDEX idx_complaints_severity (severity),
-  INDEX idx_complaints_escalation (escalation_level),
-  INDEX idx_complaints_student_id (student_id),
-  INDEX idx_complaints_assigned_to (assigned_to),
-  INDEX idx_complaints_created_at (created_at),
-  INDEX idx_complaints_student_status (student_id, status)
+  FOREIGN KEY (student_id) REFERENCES users(id),
+  FOREIGN KEY (assigned_to) REFERENCES users(id)
 );
 
 -- ===================================================
--- 6. COMPLAINT HISTORY (Audit Log Relation - 1NF Decomposition)
--- Preserves complete timeline history for every complaint.
+-- COMPLAINT HISTORY / TIMELINE (one row per status/severity/escalation change)
 -- ===================================================
-CREATE TABLE IF NOT EXISTS complaint_history (
+CREATE TABLE complaint_history (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id  INT NOT NULL,
-  note          VARCHAR(255) NOT NULL,
+  note          VARCHAR(255) NOT NULL,     -- e.g. "Assigned to Maintenance Staff A by Warden A"
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
-  INDEX idx_history_complaint_id (complaint_id)
+  FOREIGN KEY (complaint_id) REFERENCES complaints(id)
 );
 
 -- ===================================================
--- 7. ESCALATIONS (Escalation Event Audit Log)
--- Maintains immutable audit trail of automated SLA breaches & manual escalations.
+-- ESCALATIONS (audit trail of every level change - the SRS's EscalationEvent)
 -- ===================================================
-CREATE TABLE IF NOT EXISTS escalations (
+CREATE TABLE escalations (
   id                 INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id       INT NOT NULL,
-  level              TINYINT NOT NULL,
-  escalated_to_role  VARCHAR(30) NOT NULL,
-  reason             VARCHAR(255) NOT NULL,
-  triggered_by       VARCHAR(20) NOT NULL DEFAULT 'system',
+  level              TINYINT NOT NULL,          -- 1, 2 or 3
+  escalated_to_role  VARCHAR(30) NOT NULL,       -- chief_warden | college_authority | principal
+  reason             VARCHAR(255) NOT NULL,      -- "SLA breach (auto)" or a manual override reason
+  triggered_by       VARCHAR(20) NOT NULL DEFAULT 'system', -- 'system' or a user id, for manual escalations
   triggered_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
-  INDEX idx_escalations_complaint_id (complaint_id)
+  FOREIGN KEY (complaint_id) REFERENCES complaints(id)
 );
 
 -- ===================================================
--- 8. NOTIFICATIONS (Notification Dispatch Log)
--- Tracks email dispatches and escalation alerts.
+-- NOTIFICATIONS (audit trail of escalation emails — what was sent/skipped)
+-- Purely a log: RequestHandler's "notify" action sends the email itself and
+-- doesn't touch this table; js/data.js writes one row per attempt via the
+-- normal insert action, same as complaint_history/escalations above.
 -- ===================================================
-CREATE TABLE IF NOT EXISTS notifications (
+CREATE TABLE notifications (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   complaint_id  INT NOT NULL,
-  role          VARCHAR(30) NOT NULL,
+  role          VARCHAR(30) NOT NULL,       -- student | warden | chief_warden | college_authority
   email         VARCHAR(100) NOT NULL,
   subject       VARCHAR(255) NOT NULL,
   status        ENUM('sent', 'failed', 'skipped') NOT NULL,
   sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
-  INDEX idx_notifications_complaint_id (complaint_id),
-  INDEX idx_notifications_status (status)
+  FOREIGN KEY (complaint_id) REFERENCES complaints(id)
 );
 
 -- ===================================================
--- RELATIONAL VIEWS (Virtual Tables for Optimized Queries)
+-- Optional seed data matching the frontend demo accounts
+--
+-- The escalation-chain staff (warden/chief_warden/college_authority/
+-- principal) get placeholder emails on a domain that can never receive
+-- real mail and can never collide with a real address: the "is this a
+-- placeholder?" check in js/data.js is just
+--   email.endsWith('@replace-me.hostelcare.local')
+-- To actually test notifications, UPDATE the relevant row's email to a
+-- real address (e.g. your own @mmcoe.edu.in) and leave the rest alone.
 -- ===================================================
-CREATE OR REPLACE VIEW v_complaints_detailed AS
-SELECT 
-  c.id AS complaint_id,
-  c.title,
-  c.description,
-  COALESCE(cat.name, c.category) AS category_name,
-  cat.sla_hours,
-  c.severity,
-  c.status,
-  c.escalation_level,
-  c.student_id,
-  u_student.name AS student_name,
-  u_student.prn AS student_prn,
-  u_student.room AS student_room,
-  COALESCE(b.block_name, c.hostel_block) AS block_name,
-  c.assigned_to,
-  u_staff.name AS assigned_staff_name,
-  c.response_due_at,
-  c.resolution_due_at,
-  c.final_due_at,
-  c.created_at
-FROM complaints c
-LEFT JOIN users u_student ON c.student_id = u_student.id
-LEFT JOIN users u_staff ON c.assigned_to = u_staff.id
-LEFT JOIN complaint_categories cat ON c.category_id = cat.id
-LEFT JOIN hostel_blocks b ON c.block_id = b.id;
+INSERT INTO users (name, role, prn, email, password, block, room) VALUES
+  ('Tushar', 'student', 'B24CE1001', 'tusharborate2024.comp@mmcoe.edu.in', '12345678', 'Devgiri Boys Hostel', 'B-204'),
+  ('Mahesh', 'student', 'B24CE1009', 'maheshgaikwad2024.comp@mmcoe.edu.in', '12345678', 'Devgiri Boys Hostel', 'B-118');
 
-CREATE OR REPLACE VIEW v_hostel_block_stats AS
-SELECT 
-  COALESCE(b.block_name, c.hostel_block, 'Unknown') AS block_name,
-  COUNT(c.id) AS total_complaints,
-  SUM(CASE WHEN c.status = 'Pending' THEN 1 ELSE 0 END) AS pending_complaints,
-  SUM(CASE WHEN c.status = 'Assigned' THEN 1 ELSE 0 END) AS assigned_complaints,
-  SUM(CASE WHEN c.status = 'Under Review' THEN 1 ELSE 0 END) AS under_review_complaints,
-  SUM(CASE WHEN c.status = 'Resolved' THEN 1 ELSE 0 END) AS resolved_complaints
-FROM complaints c
-LEFT JOIN hostel_blocks b ON c.block_id = b.id
-GROUP BY COALESCE(b.block_name, c.hostel_block, 'Unknown');
+INSERT INTO users (name, role, email) VALUES
+  ('Warden A', 'warden', 'warden@replace-me.hostelcare.local'),
+  ('Chief Warden', 'chief_warden', 'chiefwarden@replace-me.hostelcare.local'),
+  ('College Authority', 'college_authority', 'authority@replace-me.hostelcare.local'),
+  ('Principal', 'principal', 'principal@replace-me.hostelcare.local');
 
--- ===================================================
--- SEED DATA
--- ===================================================
-INSERT IGNORE INTO hostel_blocks (id, block_code, block_name, total_rooms) VALUES
-  (1, 'DEVGIRI', 'Devgiri Boys Hostel', 120),
-  (2, 'SAHYADRI', 'Sahyadri Boys Hostel', 100),
-  (3, 'SHIVNERI', 'Shivneri Girls Hostel', 100);
-
-INSERT IGNORE INTO complaint_categories (id, name, default_severity, sla_hours, description) VALUES
-  (1, 'Electrical',    'Medium',   24, 'Electrical appliances, switches, fans, lights'),
-  (2, 'Plumbing',      'High',     12, 'Water supply, pipe leakage, washroom fittings'),
-  (3, 'Internet/WiFi', 'Medium',   24, 'Hostel WiFi routers and LAN connectivity'),
-  (4, 'Carpentry',     'Low',      48, 'Beds, tables, cupboards, doors and window repairs'),
-  (5, 'Cleaning',      'Low',      24, 'Room cleaning, corridors, and waste disposal'),
-  (6, 'Other',         'Medium',   48, 'General and miscellaneous hostel maintenance');
-
-INSERT IGNORE INTO users (id, name, role, prn, email, password, block_id, block, room) VALUES
-  (1, 'Tushar', 'student', 'B24CE1001', 'tusharborate2024.comp@mmcoe.edu.in', '12345678', 1, 'Devgiri Boys Hostel', 'B-204'),
-  (2, 'Mahesh', 'student', 'B24CE1009', 'maheshgaikwad2024.comp@mmcoe.edu.in', '12345678', 1, 'Devgiri Boys Hostel', 'B-118');
-
-INSERT IGNORE INTO users (id, name, role, email) VALUES
-  (3, 'Warden A', 'warden', 'warden@replace-me.hostelcare.local'),
-  (4, 'Chief Warden', 'chief_warden', 'chiefwarden@replace-me.hostelcare.local'),
-  (5, 'College Authority', 'college_authority', 'authority@replace-me.hostelcare.local'),
-  (6, 'Principal', 'principal', 'principal@replace-me.hostelcare.local');
-
-INSERT IGNORE INTO users (id, name, role) VALUES
-  (7, 'Maintenance Staff A', 'maintenance'),
-  (8, 'Maintenance Staff B', 'maintenance'),
-  (9, 'Admin', 'admin');
-
--- Set Warden for Devgiri
-UPDATE hostel_blocks SET warden_id = 3 WHERE id = 1;
+INSERT INTO users (name, role) VALUES
+  ('Maintenance Staff A', 'maintenance'),
+  ('Maintenance Staff B', 'maintenance'),
+  ('Admin', 'admin');

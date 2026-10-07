@@ -47,8 +47,8 @@ MIGRATION_SQL = ROOT / "mysql" / "migrate_notifications.sql"
 BACKEND_PORT = os.environ.get("HOSTELCARE_PORT", "8080")
 
 # ---- Paste your own values here (see the big comment above) ----
-SMTP_USER = "vishweshbhilare2024.comp@mmcoe.edu.in"   # e.g. "you@gmail.com"
-SMTP_PASS = "omoq null pkoo vnvb"   # the 16-character App Password, not your login password
+SMTP_USER = ""   # e.g. "you@gmail.com"
+SMTP_PASS = ""   # the 16-character App Password, not your login password
 SMTP_FROM = ""   # optional — leave blank to just send as SMTP_USER
 
 # ---- DB connection, same defaults DBConnection.java falls back to ----
@@ -79,40 +79,33 @@ def compile_backend():
         sys.exit("Backend compilation failed. Fix the errors above and re-run.")
 
 
-NORMALIZED_MIGRATION_SQL = ROOT / "mysql" / "migrate_to_normalized.sql"
-BACKUP_MANAGER = ROOT / "mysql" / "backup_manager.py"
-
-
 def apply_db_migration():
-    """Best-effort: applies normalization migration (master tables, indexes, views)
-    and ensures the backup database is synchronized and ready for automatic failover."""
-    if not NORMALIZED_MIGRATION_SQL.exists():
+    """Best-effort: creates the notifications table and seeds placeholder
+    staff emails if either is missing yet, via the `mysql` CLI, so a fresh
+    checkout works with nothing more than `python run_all.py`. Idempotent
+    (mysql/migrate_notifications.sql only uses CREATE TABLE IF NOT EXISTS
+    and UPDATE ... WHERE email IS NULL), so it's safe to run on every
+    startup. Never blocks startup: a missing `mysql` CLI or a connection
+    failure just prints a note and moves on — the table may already exist
+    from a previous run, or from schema.sql on a fresh database."""
+    if not MIGRATION_SQL.exists():
         return
 
     env = os.environ.copy()
-    env["MYSQL_PWD"] = DB_PASSWORD
-    cmd = ["mysql", "-h", DB_HOST, "-P", str(DB_PORT), "-u", DB_USER, "-e", f"source {NORMALIZED_MIGRATION_SQL.as_posix()}"]
+    env["MYSQL_PWD"] = DB_PASSWORD  # avoids putting the password in argv/ps output
+    cmd = ["mysql", "-h", DB_HOST, "-P", str(DB_PORT), "-u", DB_USER]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, env=env)
-        if result.returncode == 0:
-            print("[+] Database normalization & indexes successfully verified.")
-        else:
+        with open(MIGRATION_SQL, "rb") as f:
+            result = subprocess.run(cmd, stdin=f, capture_output=True, env=env)
+        if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
-            print(f"Note: normalization migration output: {stderr[:200]}")
+            print(f"Note: could not auto-apply {MIGRATION_SQL.name} ({stderr[:200]}).")
+            print("      If the 'notifications' table doesn't exist yet, run it manually:")
+            print(f"      mysql -u {DB_USER} -p hostelcare < {MIGRATION_SQL}")
     except FileNotFoundError:
         print("Note: 'mysql' CLI not found on PATH — skipping automatic schema migration.")
-
-    # Synchronize Backup Database
-    try:
-        print("[*] Synchronizing Backup Database (hostelcare_backup)...")
-        res = subprocess.run([sys.executable, str(BACKUP_MANAGER), "--sync"], capture_output=True, text=True)
-        if res.returncode == 0:
-            print("[+] Backup database synchronized & ready for automatic failover.")
-        else:
-            print(f"Note: backup sync output: {res.stderr[:200]}")
-    except Exception as e:
-        print(f"Note: Could not run backup sync: {e}")
+        print(f"      If the 'notifications' table doesn't exist yet, run {MIGRATION_SQL} manually.")
 
 
 def start_backend():
@@ -162,7 +155,7 @@ def main():
     print("== Compiling backend ==")
     compile_backend()
 
-    print("\n== Verifying DBMS Normalization, Indexes & Backup Database ==")
+    print("\n== Applying database migration (notifications table + placeholder emails) ==")
     apply_db_migration()
 
     print("\n== Starting server ==")
