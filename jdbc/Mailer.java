@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.net.InetSocketAddress;
 
 /**
  * Sends a single plain-text email over SMTPS (implicit TLS, e.g. Gmail's
@@ -14,8 +15,8 @@ import java.util.Base64;
  * run_all.py), so this talks raw SMTP over an SSLSocket instead of adding
  * a new dependency to fetch and keep on the classpath.
  *
- * Configuration comes from environment variables, so credentials never
- * live in source control or get shipped to the browser:
+ * Configuration comes from environment variables or ignored local configuration;
+ * the server does not serve .local files or ship credentials to the browser:
  *
  *   HOSTELCARE_SMTP_HOST   default "smtp.gmail.com"
  *   HOSTELCARE_SMTP_PORT   default "465"
@@ -34,8 +35,8 @@ public class Mailer {
     public static void send(String to, String subject, String body) throws IOException {
         String host = env("HOSTELCARE_SMTP_HOST", "smtp.gmail.com");
         int port = Integer.parseInt(env("HOSTELCARE_SMTP_PORT", "465"));
-        String user = System.getenv("HOSTELCARE_SMTP_USER");
-        String pass = System.getenv("HOSTELCARE_SMTP_PASS");
+        String user = LocalConfig.get("HOSTELCARE_SMTP_USER", null);
+        String pass = LocalConfig.get("HOSTELCARE_SMTP_PASS", null);
         String from = env("HOSTELCARE_SMTP_FROM", user);
 
         if (isBlank(user) || isBlank(pass)) {
@@ -47,7 +48,8 @@ public class Mailer {
         }
 
         SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
-        try (SSLSocket socket = (SSLSocket) factory.createSocket(host, port)) {
+        try (SSLSocket socket = (SSLSocket) factory.createSocket()) {
+            socket.connect(new InetSocketAddress(host, port), 5000);
             socket.setSoTimeout(15000);
             BufferedReader in = new BufferedReader(
                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
@@ -115,8 +117,7 @@ public class Mailer {
     }
 
     private static String env(String key, String fallback) {
-        String v = System.getenv(key);
-        return isBlank(v) ? fallback : v;
+        return LocalConfig.get(key, fallback);
     }
 
     private static boolean isBlank(String s) {

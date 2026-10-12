@@ -1,7 +1,24 @@
 # Hostel Complaint Tracker — With Escalation Matrix
 
+> Current grouping, priority, acknowledgement, shorter SLAs and background-worker behavior
+> is documented in [Complaint groups and priority policy](docs/COMPLAINT_GROUPS.md).
+> That guide supersedes the older SLA/API examples below where they differ.
+
 **Mini Project · Semester V · Department of Computer Engineering**  
 Marathwada Mitra Mandal's College of Engineering · Team 1 · 24th September 2026
+
+On Windows, double-click **`build.bat`** to compile and launch the project. It
+finds Java through `JAVA_HOME`, PATH, or Android Studio's bundled JDK, and uses
+Python (or the `py -3` launcher). Keep the window open and visit
+**http://localhost:8080** (or the port printed by the launcher). MySQL must already
+be running. Stop an older server before launching another instance.
+`build.bat --check` checks Java/Python without starting the server.
+
+Database and SMTP credentials belong in the Git-ignored
+**`.local/hostelcare.json`**, or in `HOSTELCARE_*` environment variables.
+For a new checkout, copy `config/hostelcare.example.json` to that local path and
+enter your own credentials. Environment variables override the local file.
+The Java server blocks access to `.local` and `.git` files.
 
 ---
 

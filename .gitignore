@@ -2,4 +2,8 @@
 *.class
 
 # general
+__pycache__/
+*.pyc
+/build/
+/.local/
 

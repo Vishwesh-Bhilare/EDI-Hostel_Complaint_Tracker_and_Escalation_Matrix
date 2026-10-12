@@ -25,8 +25,9 @@ import java.util.Map;
  *                                        frontend is served by this same
  *                                        process instead of a second server.
  *   - POST /api                     -> read the JSON body. action:"notify"
- *                                        goes straight to Mailer (no DB
- *                                        involved); every other action is
+ *                                        queues an audited background email;
+ *                                        action:"snapshot" reads dashboard data
+ *                                        using one connection; other actions are
  *                                        run through JsonToSqlConverter
  *                                        against MySQL. Either way the
  *                                        JSON result is written back.
@@ -115,7 +116,9 @@ public class RequestHandler implements Runnable {
                 responseMap = handleNotify(requestMap);
             } else {
                 try (Connection conn = DBConnection.getConnection()) {
-                    responseMap = JsonToSqlConverter.handleRequest(conn, requestMap);
+                    responseMap = "snapshot".equals(requestMap.get("action"))
+                            ? handleSnapshot(conn, Boolean.TRUE.equals(requestMap.get("includeAccounts")))
+                            : JsonToSqlConverter.handleRequest(conn, requestMap);
                 }
             }
         } catch (Exception e) {
@@ -130,7 +133,25 @@ public class RequestHandler implements Runnable {
         writeResponse(out, isError ? 400 : 200, bodyBytes, "application/json; charset=utf-8");
     }
 
-    // ---------------- notify (send one email, no DB involved) ----------------
+    // Dashboard reads share one HTTP request and one JDBC connection.
+    private static Map<String, Object> handleSnapshot(Connection conn, boolean includeAccounts) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        String[] tables = includeAccounts
+                ? new String[]{"users", "pending_registrations", "complaints", "complaint_history", "escalations"}
+                : new String[]{"complaints", "complaint_history", "escalations"};
+        for (String table : tables) {
+            Map<String, Object> select = new LinkedHashMap<>();
+            select.put("action", "select");
+            select.put("table", table);
+            if ("pending_registrations".equals(table)) select.put("where", Map.of("status", "pending"));
+            Map<String, Object> result = JsonToSqlConverter.handleRequest(conn, select);
+            if ("error".equals(result.get("status"))) return result;
+            data.put(table, result.get("rows"));
+        }
+        return Map.of("status", "ok", "data", data);
+    }
+
+    // ---------------- notify (accept one audited background email) ----------------
 
     private static Map<String, Object> handleNotify(Map<String, Object> requestMap) {
         Map<String, Object> response = new LinkedHashMap<>();
@@ -138,11 +159,16 @@ public class RequestHandler implements Runnable {
             Object to = requestMap.get("to");
             Object subject = requestMap.get("subject");
             Object messageBody = requestMap.get("body");
-            if (to == null || subject == null || messageBody == null) {
-                throw new IllegalArgumentException("notify requires to, subject and body");
+            Object complaintId = requestMap.get("complaintId");
+            Object role = requestMap.get("role");
+            if (to == null || subject == null || messageBody == null || complaintId == null || role == null) {
+                throw new IllegalArgumentException("notify requires complaintId, role, to, subject and body");
             }
-            Mailer.send(to.toString(), subject.toString(), messageBody.toString());
+            long id = NotificationDispatcher.enqueue(Integer.parseInt(complaintId.toString()),
+                    role.toString(), to.toString(), subject.toString(), messageBody.toString());
             response.put("status", "ok");
+            response.put("delivery", "queued");
+            response.put("notificationId", id);
         } catch (Exception e) {
             response.put("status", "error");
             response.put("message", e.getMessage());
@@ -160,6 +186,11 @@ public class RequestHandler implements Runnable {
 
         // Refuse to serve anything outside PROJECT_ROOT (blocks "../../etc/passwd" style paths)
         if (!file.startsWith(PROJECT_ROOT) || !Files.isRegularFile(file)) {
+            writeText(out, 404, "Not Found", "text/plain; charset=utf-8");
+            return;
+        }
+        Path relative = PROJECT_ROOT.relativize(file);
+        if (relative.startsWith(".local") || relative.startsWith(".git")) {
             writeText(out, 404, "Not Found", "text/plain; charset=utf-8");
             return;
         }
@@ -219,7 +250,14 @@ public class RequestHandler implements Runnable {
             case 400: return "Bad Request";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";
+            case 503: return "Service Unavailable";
             default: return "Error";
+        }
+    }
+
+    static void rejectBusyClient(Socket socket) throws IOException {
+        try (Socket client = socket) {
+            writeText(client.getOutputStream(), 503, "Server busy; please retry shortly", "text/plain; charset=utf-8");
         }
     }
 

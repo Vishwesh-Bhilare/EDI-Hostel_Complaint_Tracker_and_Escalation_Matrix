@@ -46,6 +46,7 @@ CREATE TABLE complaints (
   title               VARCHAR(150) NOT NULL,
   category            VARCHAR(50) NOT NULL,
   severity            ENUM('Low', 'Medium', 'High', 'Critical') NOT NULL,
+  manual_severity     ENUM('Low', 'Medium', 'High', 'Critical') NULL, -- optional priority floor
   description         TEXT,
   photo               VARCHAR(255),          -- path/URL to uploaded photo
   completion_photo    VARCHAR(255),          -- path/URL to maintenance completion photo
@@ -55,6 +56,8 @@ CREATE TABLE complaints (
   assigned_to         INT,                   -- maintenance staff (nullable until assigned)
   escalation_level    TINYINT NOT NULL DEFAULT 0,  -- 0=Warden, 1=Chief Warden, 2=College Authority, 3=Principal
   response_due_at     TIMESTAMP NULL,        -- SLA: must be assigned/acknowledged by this time
+  authority_response_due_at TIMESTAMP NULL, -- current authority's response deadline
+  authority_acknowledged TINYINT NOT NULL DEFAULT 0,
   resolution_due_at   TIMESTAMP NULL,        -- SLA: must be resolved by this time
   final_due_at        TIMESTAMP NULL,        -- final threshold: escalate to the Principal after the authority chain
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,9 +95,8 @@ CREATE TABLE escalations (
 
 -- ===================================================
 -- NOTIFICATIONS (audit trail of escalation emails — what was sent/skipped)
--- Purely a log: RequestHandler's "notify" action sends the email itself and
--- doesn't touch this table; js/data.js writes one row per attempt via the
--- normal insert action, same as complaint_history/escalations above.
+-- The backend saves queued real-email attempts and updates their delivery status
+-- from separate workers. The frontend logs skipped addresses / enqueue failures.
 -- ===================================================
 CREATE TABLE notifications (
   id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,7 +104,7 @@ CREATE TABLE notifications (
   role          VARCHAR(30) NOT NULL,       -- student | warden | chief_warden | college_authority
   email         VARCHAR(100) NOT NULL,
   subject       VARCHAR(255) NOT NULL,
-  status        ENUM('sent', 'failed', 'skipped') NOT NULL,
+  status        ENUM('queued', 'sent', 'failed', 'skipped') NOT NULL,
   sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (complaint_id) REFERENCES complaints(id)

@@ -45,6 +45,37 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function authorityResponseHtml(c) {
+  if (c.status === "Resolved") return "";
+  if (c.authorityAcknowledged) return `<span class="small text-success">Acknowledged by ${labelForLevel(c.escalationLevel)}</span>`;
+  const overdue = authorityResponseOverdue(c);
+  return `<span class="small ${overdue ? "text-danger" : ""}">${overdue ? "Response overdue" : "Awaiting response"} from ${labelForLevel(c.escalationLevel)} &middot; ${formatDueBy(c.authorityResponseDueAt || c.responseDueAt)}</span>`;
+}
+
+function attachAcknowledgementHandlers() {
+  document.querySelectorAll("[data-acknowledge]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await acknowledgeComplaint(btn.getAttribute("data-acknowledge"), currentUser.id);
+        render();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function updateStudentEscalationAvailability() {
+  if (currentUser?.role !== "student") return;
+  const complaintsById = new Map(COMPLAINTS.map(c => [c.id, c]));
+  document.querySelectorAll("[data-student-escalate]").forEach(btn => {
+    const c = complaintsById.get(btn.getAttribute("data-student-escalate"));
+    btn.disabled = !c || !canStudentEscalate(c, currentUser.id);
+  });
+}
+
 // ---------------- Debug: force-escalate + notify ----------------
 // Testing helper, not a normal workflow action — jumps a complaint's SLA
 // clocks into the past and immediately runs the real checkEscalations()
@@ -464,6 +495,7 @@ function attachViewHandlers() {
   const root = document.getElementById("app");
 
   wireThemeToggle();
+  attachAcknowledgementHandlers();
 
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) logoutBtn.addEventListener("click", logout);
@@ -495,17 +527,27 @@ function attachViewHandlers() {
 
 // Runs the SLA-breach sweep, then re-renders if something actually changed
 // (so an idle screen doesn't visibly flicker every poll for no reason).
-async function runEscalationSweepAndRender() {
-  const before = COMPLAINTS.map(c => c.escalationLevel).join(",");
-  await checkEscalations();
-  const after = COMPLAINTS.map(c => c.escalationLevel).join(",");
-  if (before !== after && currentUser) {
-    render();
+async function runEscalationSweepAndRender(options = {}) {
+  const before = JSON.stringify(COMPLAINTS);
+  try {
+    await checkEscalations(options);
+    // Students' escalation eligibility changes as time passes, even when no
+    // database values change. Leave open forms/details alone while typing.
+    const editing = document.querySelector(".modal.show, details[open]") ||
+      ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+    if (currentUser && !editing && (before !== JSON.stringify(COMPLAINTS) || currentUser.role === "student")) render();
+  } catch (err) {
+    console.error("Complaint refresh failed:", err);
   }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   const root = document.getElementById("app");
+  if (window.location.protocol === "file:") {
+    root.innerHTML = `<div class="container py-5" style="max-width: 520px;"><h5>Open the app through the Java server</h5>
+      <p>Start the backend, then use <a href="http://localhost:8080/">http://localhost:8080</a>.</p></div>`;
+    return;
+  }
   root.innerHTML = `<div class="container py-5 text-center"><p>Loading...</p></div>`;
   try {
     await initData();
@@ -520,10 +562,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  await checkEscalations(); // catch anything that breached while nobody was watching
   render();
+  // The welcome screen need not wait for overdue complaints to finish moving.
+  // Reuse initData's snapshot instead of immediately fetching all tables again.
+  void runEscalationSweepAndRender({ refresh: false });
 
   // Poll for SLA breaches every 30s so escalation happens without anyone
   // having to click anything (see the note in js/data.js#checkEscalations).
   setInterval(runEscalationSweepAndRender, 30000);
+  // Keep manual escalation usable between the deadline and the next auto-sweep.
+  setInterval(updateStudentEscalationAvailability, 1000);
 });

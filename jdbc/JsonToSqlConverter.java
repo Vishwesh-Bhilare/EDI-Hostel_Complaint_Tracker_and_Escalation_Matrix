@@ -4,6 +4,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,9 +45,10 @@ public class JsonToSqlConverter {
         TABLE_COLUMNS.put("pending_registrations", new HashSet<>(Arrays.asList(
                 "id", "name", "prn", "email", "password", "block", "status", "rejection_reason", "requested_at")));
         TABLE_COLUMNS.put("complaints", new HashSet<>(Arrays.asList(
-                "id", "title", "category", "severity", "description", "photo", "completion_photo",
+                "id", "title", "category", "severity", "manual_severity", "description", "photo", "completion_photo",
                 "status", "student_id", "hostel_block", "assigned_to", "escalation_level",
-                "response_due_at", "resolution_due_at", "final_due_at", "created_at")));
+                "response_due_at", "authority_response_due_at", "authority_acknowledged",
+                "resolution_due_at", "final_due_at", "created_at")));
         TABLE_COLUMNS.put("complaint_history", new HashSet<>(Arrays.asList(
                 "id", "complaint_id", "note", "created_at")));
         TABLE_COLUMNS.put("escalations", new HashSet<>(Arrays.asList(
@@ -233,7 +235,14 @@ public class JsonToSqlConverter {
         while (rs.next()) {
             Map<String, Object> row = new LinkedHashMap<>();
             for (int i = 1; i <= columnCount; i++) {
-                row.put(meta.getColumnLabel(i), rs.getObject(i));
+                // The frontend writes and reads local SQL date strings. Turning
+                // TIMESTAMP into java.sql.Timestamp and then toString() applies
+                // the JVM timezone again when serverTimezone differs (e.g. UTC
+                // vs Asia/Kolkata), shifting response deadlines by 5.5 hours.
+                int type = meta.getColumnType(i);
+                Object value = type == Types.TIMESTAMP || type == Types.DATE || type == Types.TIME
+                        ? rs.getString(i) : rs.getObject(i);
+                row.put(meta.getColumnLabel(i), value);
             }
             rows.add(row);
         }

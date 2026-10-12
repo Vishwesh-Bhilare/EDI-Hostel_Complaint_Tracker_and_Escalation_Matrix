@@ -18,9 +18,9 @@ set them; otherwise it falls back to the defaults baked into
 DBConnection.java.
 
 ---------------------------------------------------------------------
-Escalation emails (optional): paste your credentials into SMTP_USER /
-SMTP_PASS below and this script exports them for the Java process every
-time it runs — no `export` needed in your shell. Leave them blank to run
+Escalation emails (optional): configure HOSTELCARE_SMTP_USER /
+HOSTELCARE_SMTP_PASS in .local/hostelcare.json or environment variables.
+The local JSON file is ignored by Git. Leave them blank to run
 without email notifications (everything else still works normally; the
 notifications table will just show "failed"/"skipped" rows).
 
@@ -33,35 +33,46 @@ notifications table will just show "failed"/"skipped" rows).
 """
 
 import os
+import json
 import signal
+import socket
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+LOCAL_CONFIG_FILE = ROOT / ".local" / "hostelcare.json"
+LOCAL_SETTINGS = json.loads(LOCAL_CONFIG_FILE.read_text(encoding="utf-8")) if LOCAL_CONFIG_FILE.exists() else {}
+
+
+def local_setting(name, fallback=""):
+    return os.environ[name] if name in os.environ else LOCAL_SETTINGS.get(name, fallback)
+
+
 BUILD_DIR = ROOT / "build"
 MYSQL_JAR = ROOT / "jdbc" / "mysql-connector-j-26.7.0.jar"
 MIGRATION_SQL = ROOT / "mysql" / "migrate_notifications.sql"
+GROUP_MIGRATION_SQL = ROOT / "mysql" / "migrate_complaint_groups.sql"
+BACKGROUND_MIGRATION_SQL = ROOT / "mysql" / "migrate_background_notifications.sql"
 
 BACKEND_PORT = os.environ.get("HOSTELCARE_PORT", "8080")
 
-# ---- Paste your own values here (see the big comment above) ----
-SMTP_USER = ""   # e.g. "you@gmail.com"
-SMTP_PASS = ""   # the 16-character App Password, not your login password
-SMTP_FROM = ""   # optional — leave blank to just send as SMTP_USER
+# ---- Ignored local configuration / environment variables ----
+SMTP_USER = local_setting("HOSTELCARE_SMTP_USER")
+SMTP_PASS = local_setting("HOSTELCARE_SMTP_PASS")
+SMTP_FROM = local_setting("HOSTELCARE_SMTP_FROM")
 
-# ---- DB connection, same defaults DBConnection.java falls back to ----
-DB_HOST = os.environ.get("HOSTELCARE_DB_HOST", "localhost")
-DB_PORT = os.environ.get("HOSTELCARE_DB_PORT", "3306")
-DB_USER = os.environ.get("HOSTELCARE_DB_USER", "root")
-DB_PASSWORD = os.environ.get("HOSTELCARE_DB_PASSWORD", "root123")
+# Database settings live in DBConnection.java / HOSTELCARE_DB_* environment
+# variables. Migrations use that same JDBC code, with no second password default.
 
 backend_proc = None
+backend_ready = threading.Event()
 
 
 def run(cmd, **kwargs):
-    print(f"$ {' '.join(str(c) for c in cmd)}")
+    print(f"$ {' '.join(str(c) for c in cmd)}", flush=True)
     return subprocess.run(cmd, **kwargs)
 
 
@@ -79,33 +90,36 @@ def compile_backend():
         sys.exit("Backend compilation failed. Fix the errors above and re-run.")
 
 
-def apply_db_migration():
-    """Best-effort: creates the notifications table and seeds placeholder
-    staff emails if either is missing yet, via the `mysql` CLI, so a fresh
-    checkout works with nothing more than `python run_all.py`. Idempotent
-    (mysql/migrate_notifications.sql only uses CREATE TABLE IF NOT EXISTS
-    and UPDATE ... WHERE email IS NULL), so it's safe to run on every
-    startup. Never blocks startup: a missing `mysql` CLI or a connection
-    failure just prints a note and moves on — the table may already exist
-    from a previous run, or from schema.sql on a fresh database."""
-    if not MIGRATION_SQL.exists():
-        return
+def apply_db_migrations():
+    """Use Java's database configuration; do not start with missing schema fields."""
+    files = [MIGRATION_SQL, GROUP_MIGRATION_SQL, BACKGROUND_MIGRATION_SQL]
+    missing = [p.name for p in files if not p.exists()]
+    if missing:
+        sys.exit("Missing migration files: " + ", ".join(missing))
+    classpath = os.pathsep.join([str(BUILD_DIR), str(MYSQL_JAR)])
+    result = subprocess.run(
+        ["java", "-cp", classpath, "SqlMigration", *(str(p) for p in files)], cwd=ROOT
+    )
+    if result.returncode != 0:
+        sys.exit("Database migration failed. Check MySQL and the settings in DBConnection.java / HOSTELCARE_DB_*.")
 
-    env = os.environ.copy()
-    env["MYSQL_PWD"] = DB_PASSWORD  # avoids putting the password in argv/ps output
-    cmd = ["mysql", "-h", DB_HOST, "-P", str(DB_PORT), "-u", DB_USER]
 
+def check_port_available():
     try:
-        with open(MIGRATION_SQL, "rb") as f:
-            result = subprocess.run(cmd, stdin=f, capture_output=True, env=env)
-        if result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            print(f"Note: could not auto-apply {MIGRATION_SQL.name} ({stderr[:200]}).")
-            print("      If the 'notifications' table doesn't exist yet, run it manually:")
-            print(f"      mysql -u {DB_USER} -p hostelcare < {MIGRATION_SQL}")
-    except FileNotFoundError:
-        print("Note: 'mysql' CLI not found on PATH — skipping automatic schema migration.")
-        print(f"      If the 'notifications' table doesn't exist yet, run {MIGRATION_SQL} manually.")
+        port = int(BACKEND_PORT)
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except ValueError:
+        sys.exit("HOSTELCARE_PORT must be a number from 1 to 65535.")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("0.0.0.0", port))
+    except OSError:
+        sys.exit(
+            f"Port {port} is already in use or unavailable.\n"
+            "Stop the older HostelCare server with Ctrl+C and run build.bat again.\n"
+            "To use another port in PowerShell: $env:HOSTELCARE_PORT = '8081'"
+        )
 
 
 def start_backend():
@@ -113,9 +127,7 @@ def start_backend():
     classpath = os.pathsep.join([str(BUILD_DIR), str(MYSQL_JAR)])
 
     env = os.environ.copy()
-    # Only override with the hardcoded values above if they're actually set —
-    # this way an already-`export`ed shell variable still wins over a blank
-    # placeholder left in this file.
+    # Forward resolved local settings; explicit environment values take priority.
     if SMTP_USER:
         env["HOSTELCARE_SMTP_USER"] = SMTP_USER
     if SMTP_PASS:
@@ -126,46 +138,83 @@ def start_backend():
     if env.get("HOSTELCARE_SMTP_USER") and env.get("HOSTELCARE_SMTP_PASS"):
         print(f"SMTP configured — escalation emails will send as {env['HOSTELCARE_SMTP_USER']}.")
     else:
-        print("SMTP not configured — escalation emails will be skipped (paste SMTP_USER / "
-              "SMTP_PASS near the top of run_all.py to enable them).")
+        print("SMTP not configured — email attempts will be logged as failed/skipped. "
+              "Configure SMTP in .local/hostelcare.json or environment variables to enable delivery.")
 
+    backend_ready.clear()
     backend_proc = subprocess.Popen(
         ["java", "-cp", classpath, "TcpServer", BACKEND_PORT],
         cwd=ROOT,
         env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
+    process = backend_proc
+
+    def forward_output():
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            if line.startswith("HostelCare server listening on port "):
+                backend_ready.set()
+
+    threading.Thread(target=forward_output, daemon=True).start()
     return backend_proc
 
 
-def shutdown(*_):
-    print("\nStopping server...")
+def wait_for_backend(timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if backend_ready.wait(0.1):
+            return
+        code = backend_proc.poll()
+        if code is not None:
+            sys.exit(f"Server failed to start (exit code {code}). No new server is running.")
+    stop_backend()
+    sys.exit("Server startup timed out. No new server is running.")
+
+
+def stop_backend():
     if backend_proc and backend_proc.poll() is None:
         backend_proc.terminate()
         try:
             backend_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             backend_proc.kill()
+
+
+def shutdown(*_):
+    print("\nStopping server...")
+    stop_backend()
     sys.exit(0)
 
 
 def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
+    migrate_only = "--migrate-only" in sys.argv[1:]
+    if not migrate_only:
+        check_port_available()
 
-    print("== Compiling backend ==")
+    print("== Compiling backend ==", flush=True)
     compile_backend()
 
-    print("\n== Applying database migration (notifications table + placeholder emails) ==")
-    apply_db_migration()
+    print("\n== Applying database migrations using the Java database settings ==", flush=True)
+    apply_db_migrations()
+    if migrate_only:
+        print("Database migrations completed. The server has not been started.")
+        return
 
-    print("\n== Starting server ==")
+    print("\n== Starting server ==", flush=True)
     start_backend()
-    time.sleep(1)  # give the socket a moment to bind
+    wait_for_backend()
 
     print(
         f"\nOpen: http://localhost:{BACKEND_PORT}/\n"
         f"(This one process serves the frontend AND /api.)\n"
-        f"Press Ctrl+C to stop.\n"
+        f"Press Ctrl+C to stop.\n",
+        flush=True,
     )
 
     while True:

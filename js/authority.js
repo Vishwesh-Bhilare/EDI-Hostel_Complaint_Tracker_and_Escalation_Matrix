@@ -67,9 +67,11 @@ function renderAuthorityQueueList(list, level) {
           <span class="small" style="color: var(--ink-soft);">Resolve by ${formatDueBy(c.resolutionDueAt)}</span>
         </div>
         <div class="mt-3 d-flex gap-2 flex-wrap">
+          ${!c.authorityAcknowledged ? `<button class="btn btn-outline-secondary btn-sm" data-acknowledge="${c.id}">Acknowledge</button>` : ""}
           <button class="btn btn-teal btn-sm" data-authority-resolve="${c.id}">Resolve</button>
           ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate to ${labelForLevel(level + 1)}</button>` : ""}
         </div>
+        <div class="mt-2">${authorityResponseHtml(c)}</div>
       </div>
     `;
   }).join("");
@@ -161,9 +163,13 @@ function attachAuthorityQueueHandlers(level) {
         document.getElementById("authorityEscalateReason").focus();
         return;
       }
-      await escalateManually(_escalateTargetId, currentUser.id, reason);
-      escalateModal.hide();
-      render();
+      confirmBtn.disabled = true;
+      try {
+        await escalateManually(_escalateTargetId, currentUser.id, reason);
+        escalateModal.hide();
+        render();
+      } catch (err) { alert(err.message); }
+      finally { confirmBtn.disabled = false; }
     });
   }
 }

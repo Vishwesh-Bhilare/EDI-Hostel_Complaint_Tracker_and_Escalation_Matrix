@@ -77,11 +77,32 @@ function studentComplaintCard(c) {
       </div>
       <div class="mt-2" style="color: var(--ink-soft); font-size: 0.9rem;">${escapeHtml(c.description)}</div>
       ${c.escalationLevel > 0 ? `<div class="mt-2">${escalationBadge(c.escalationLevel)}</div>` : ""}
+      <div class="mt-2">${authorityResponseHtml(c)}</div>
+      ${c.status !== "Resolved" && c.escalationLevel < 3 ? `
+        <button class="btn btn-outline-danger btn-sm mt-2" data-student-escalate="${c.id}"
+          ${canStudentEscalate(c, currentUser.id) ? "" : "disabled"}>Escalate unanswered complaint</button>
+        <div class="form-text">Available after the current authority misses its response deadline.</div>
+      ` : ""}
     </div>
   `;
 }
 
 function attachStudentHandlers() {
+  document.querySelectorAll("[data-student-escalate]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const reason = prompt("Why are you escalating this unanswered complaint?");
+      if (!reason || !reason.trim()) return;
+      btn.disabled = true;
+      try {
+        const changed = await escalateManually(btn.getAttribute("data-student-escalate"), currentUser.id, reason);
+        if (!changed) alert("The complaint has already changed. Please check its current queue.");
+        render();
+      } catch (err) {
+        alert(err.message);
+        render();
+      }
+    });
+  });
   const openBtn = document.getElementById("newComplaintBtn");
   const modalEl = document.getElementById("newComplaintModal");
   const modal = new bootstrap.Modal(modalEl);

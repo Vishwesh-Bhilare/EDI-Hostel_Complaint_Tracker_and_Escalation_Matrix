@@ -8,13 +8,12 @@ public class DBConnection {
             "jdbc:mysql://localhost:3306/hostelcare?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true";
 
     private static String envOrDefault(String name, String fallback) {
-        String value = System.getenv(name);
-        return value == null || value.isBlank() ? fallback : value;
+        return LocalConfig.get(name, fallback);
     }
 
     private static final String URL = envOrDefault("HOSTELCARE_DB_URL", DEFAULT_URL);
     private static final String USER = envOrDefault("HOSTELCARE_DB_USER", "root");
-    private static final String PASSWORD = envOrDefault("HOSTELCARE_DB_PASSWORD", "root123");
+    private static final String PASSWORD = envOrDefault("HOSTELCARE_DB_PASSWORD", "");
 
     public static Connection getConnection() throws SQLException {
         try {
