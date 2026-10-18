@@ -108,7 +108,11 @@ memory, so stopping/restarting the server can interrupt queued mail; it is not
 a durable retry service. SMTP connections have a five-second connect timeout.
 
 Dashboard snapshot requests read the required tables through **one HTTP request
-and one JDBC connection**. Startup uses that snapshot for its initial escalation
+and one borrowed JDBC connection**. A separate pool reuses up to five physical
+MySQL connections across HTTP and mail workers. A worker waits up to three seconds
+for a pool slot; closing its borrowed connection returns it for reuse. See
+`docs/FINAL_INTEGRATION.md` for the integrated pool behavior and checks.
+Startup uses that snapshot for its initial escalation
 check, displays the welcome screen before the sweep completes, and avoids the
 old immediate second data load. Independent group-priority writes run with up to
 four requests in flight; dependent updates and their history records stay ordered.

@@ -55,7 +55,9 @@ async function main() {
         HOSTELCARE_DB_URL: `jdbc:mysql://localhost:3306/${database}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true`,
         HOSTELCARE_DB_USER: user, HOSTELCARE_DB_PASSWORD: password,
         HOSTELCARE_SMTP_USER: '', HOSTELCARE_SMTP_PASS: '', HOSTELCARE_SMTP_FROM: '' };
-    execFileSync(java.replace(/java(\.exe)?$/, 'javac$1'), ['-cp', classpath, '-d', path.join(root, 'build'), path.join(root, 'tests', 'NotificationDispatcherTest.java'), path.join(root, 'tests', 'SqlMigrationTest.java')],
+    const javaTests = ['tests/NotificationDispatcherTest.java', 'tests/SqlMigrationTest.java',
+      'tests/JdbcPoolRegressionTest.java', 'ConcurrencyTest.java', 'JdbcPoolTest.java'];
+    execFileSync(java.replace(/java(\.exe)?$/, 'javac$1'), ['-cp', classpath, '-d', path.join(root, 'build'), ...javaTests.map(file => path.join(root, file))],
       { cwd: root, windowsHide: true });
     console.log(execFileSync(java, ['-cp', classpath, 'SqlMigrationTest'], { cwd: root, windowsHide: true, encoding: 'utf8' }).trim());
     const migrationFiles = ['migrate_notifications.sql', 'migrate_complaint_groups.sql', 'migrate_background_notifications.sql'].map(name => path.join(root, 'mysql', name));
@@ -63,17 +65,27 @@ async function main() {
       { cwd: root, windowsHide: true, env: serverEnv, encoding: 'utf8' });
     assert.equal((migrations.match(/Applied /g) || []).length, 6);
     console.log('Java migrations passed twice using the backend connection settings and isolated database.');
+    for (const test of ['JdbcPoolTest', 'JdbcPoolRegressionTest']) {
+      console.log(execFileSync(java, ['-cp', classpath, test],
+        { cwd: root, windowsHide: true, env: serverEnv, encoding: 'utf8', timeout: 30000 }).trim());
+    }
     const mailTest = execFileSync(java, ['-cp', classpath, 'NotificationDispatcherTest'],
       { cwd: root, windowsHide: true, env: serverEnv, encoding: 'utf8' });
     console.log(mailTest.trim());
     server = spawn(java, ['-cp', classpath, 'TcpServer', '18765'],
-      { cwd: root, windowsHide: true, stdio: 'pipe', env: serverEnv });
+      { cwd: root, windowsHide: true, stdio: 'pipe', env: { ...serverEnv, HOSTELCARE_DEBUG_REQUESTS: 'true' } });
+    let serverOutput = '';
+    server.stdout.on('data', data => { serverOutput += data.toString(); });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Java server startup timed out')), 10000);
       server.stdout.on('data', data => { if (data.toString().includes('listening on port')) { clearTimeout(timer); resolve(); } });
       server.once('error', reject);
       server.once('exit', code => { clearTimeout(timer); reject(new Error(`Java server exited ${code}`)); });
     });
+    for (const [endpoint, mode] of [[url + '/', 'static'], [url + '/api', 'snapshot']]) {
+      console.log(execFileSync(java, ['-cp', classpath, 'ConcurrencyTest', endpoint, '100', mode],
+        { cwd: root, windowsHide: true, env: serverEnv, encoding: 'utf8', timeout: 30000 }).trim());
+    }
     browser = await chromium.launch({ channel: 'msedge', headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
     page.on('pageerror', error => errors.push(error.message));
@@ -181,6 +193,9 @@ async function main() {
     await page.goto('file:///' + path.join(root, 'index.html').replace(/\\/g, '/'));
     await page.getByRole('heading', { name: 'Open the app through the Java server' }).waitFor();
     assert.deepEqual(errors, []);
+    assert.match(serverOutput, /HTTP workers: 16; mail workers: 2; JDBC connections: 5/);
+    const httpWorkers = new Set([...serverOutput.matchAll(/Request STARTED by: (hostelcare-http-\d+)/g)].map(match => match[1]));
+    assert.equal(httpWorkers.size, 16, 'the integrated server must keep the 16-worker HTTP pool');
     console.log('Browser smoke passed: grouping, 21-report promotion, acknowledgement, resolution, filters, dark/mobile layout, and student overdue escalation.');
   } finally {
     if (browser) await browser.close();

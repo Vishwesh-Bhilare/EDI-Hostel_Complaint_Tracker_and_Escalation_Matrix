@@ -46,6 +46,10 @@ public class RequestHandler implements Runnable {
 
     @Override
     public void run() {
+        if ("true".equalsIgnoreCase(LocalConfig.get("HOSTELCARE_DEBUG_REQUESTS", "false"))) {
+            System.out.println("Request STARTED by: " + Thread.currentThread().getName());
+        }
+
         try (Socket s = socket;
              InputStream in = s.getInputStream();
              OutputStream out = s.getOutputStream()) {
