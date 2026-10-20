@@ -8,8 +8,17 @@ run_all.py — starts the whole HostelCare system with one command.
   3. Print the URL and shut it down cleanly on Ctrl+C.
 
 Usage:
-    python run_all.py
-    HOSTELCARE_PORT=9090 python run_all.py
+    python run_all.py            (Windows)
+    python3 run_all.py           (Ubuntu / Linux)
+    HOSTELCARE_PORT=9090 python3 run_all.py
+
+On Linux the launcher also prepares MySQL by itself (first run only):
+starts the MySQL service if needed, creates the `hostelcare` database and
+the `hostelcare` MySQL user (through `sudo mysql`), and loads
+mysql/schema.sql. Override the defaults with HOSTELCARE_DB_USER /
+HOSTELCARE_DB_PASSWORD (env vars or .local/hostelcare.json), or set
+HOSTELCARE_DB_URL to point at a database you manage yourself (this skips
+the automatic MySQL setup).
 
 Requirements: a JDK (javac/java) on PATH. MySQL must already be running
 and reachable using the env vars DBConnection.java reads
@@ -34,6 +43,8 @@ notifications table will just show "failed"/"skipped" rows).
 
 import os
 import json
+import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -59,6 +70,13 @@ BACKGROUND_MIGRATION_SQL = ROOT / "mysql" / "migrate_background_notifications.sq
 
 BACKEND_PORT = os.environ.get("HOSTELCARE_PORT", "8080")
 
+# ---- Linux (Ubuntu) automatic MySQL setup ----
+IS_LINUX = sys.platform.startswith("linux")
+DB_NAME = "hostelcare"
+SCHEMA_SQL = ROOT / "mysql" / "schema.sql"
+LINUX_DB_DEFAULTS = {"HOSTELCARE_DB_USER": "hostelcare", "HOSTELCARE_DB_PASSWORD": "mmcoe"}
+MIN_JAVA_MAJOR = 11
+
 # ---- Ignored local configuration / environment variables ----
 SMTP_USER = local_setting("HOSTELCARE_SMTP_USER")
 SMTP_PASS = local_setting("HOSTELCARE_SMTP_PASS")
@@ -74,6 +92,129 @@ backend_ready = threading.Event()
 def run(cmd, **kwargs):
     print(f"$ {' '.join(str(c) for c in cmd)}", flush=True)
     return subprocess.run(cmd, **kwargs)
+
+
+def apply_linux_db_defaults():
+    """On Linux, default to the hostelcare/mmcoe MySQL account unless configured."""
+    if not IS_LINUX:
+        return
+    for name, value in LINUX_DB_DEFAULTS.items():
+        if name not in os.environ and name not in LOCAL_SETTINGS:
+            os.environ[name] = value
+
+
+def ensure_java():
+    """Make sure a JDK (javac) is present; on Ubuntu offer to install one."""
+    if shutil.which("javac") is None or shutil.which("java") is None:
+        if not (IS_LINUX and shutil.which("apt-get")):
+            sys.exit("ERROR: a JDK (java + javac) was not found on PATH. Install JDK 11 or newer.")
+        print("A JDK was not found.")
+        answer = input("Install it now with `sudo apt-get install -y default-jdk-headless`? [Y/n] ").strip().lower()
+        if answer not in ("", "y", "yes"):
+            sys.exit("Install a JDK (sudo apt install default-jdk) and run again.")
+        sudo = [] if os.geteuid() == 0 else ["sudo"]
+        if run(sudo + ["apt-get", "install", "-y", "default-jdk-headless"]).returncode != 0:
+            sys.exit("JDK installation failed. Install it manually: sudo apt install default-jdk")
+    out = subprocess.run(["javac", "-version"], capture_output=True, text=True)
+    match = re.search(r"(\d+)(?:\.(\d+))?", out.stdout + out.stderr)
+    if match:
+        major = int(match.group(1))
+        if major == 1:  # old "1.8" style version numbers
+            major = int(match.group(2) or 0)
+        if major < MIN_JAVA_MAJOR:
+            sys.exit(f"ERROR: JDK {MIN_JAVA_MAJOR}+ is required (found {major}). Run: sudo apt install default-jdk")
+
+
+def sql_quote(value):
+    return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
+
+
+def provision_sql(user, password):
+    account = f"{sql_quote(user)}@'localhost'"
+    return (
+        f"CREATE DATABASE IF NOT EXISTS {DB_NAME};\n"
+        f"CREATE USER IF NOT EXISTS {account} IDENTIFIED BY {sql_quote(password)};\n"
+        f"ALTER USER {account} IDENTIFIED BY {sql_quote(password)};\n"
+        f"GRANT ALL PRIVILEGES ON {DB_NAME}.* TO {account};\n"
+        "FLUSH PRIVILEGES;\n"
+    )
+
+
+def mysql_server_reachable():
+    try:
+        with socket.create_connection(("127.0.0.1", 3306), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def ensure_mysql_running():
+    if mysql_server_reachable():
+        return
+    print("MySQL is not running. Trying to start it (sudo may ask for your password)...", flush=True)
+    sudo = [] if os.geteuid() == 0 else ["sudo"]
+    for service in ("mysql", "mysqld", "mariadb"):
+        if subprocess.run(sudo + ["systemctl", "start", service], stderr=subprocess.DEVNULL).returncode == 0:
+            break
+    for _ in range(30):
+        if mysql_server_reachable():
+            return
+        time.sleep(0.5)
+    sys.exit("ERROR: MySQL is not reachable on port 3306. Install/start it: sudo apt install mysql-server && sudo systemctl start mysql")
+
+
+def mysql_as_app_user(user, password, *args, **kwargs):
+    env = os.environ.copy()
+    env["MYSQL_PWD"] = password  # keeps the password off the command line
+    cmd = ["mysql", "-h", "127.0.0.1", "--protocol=TCP", "-u", user, *args]
+    return subprocess.run(cmd, env=env, **kwargs)
+
+
+def app_user_can_connect(user, password):
+    result = mysql_as_app_user(user, password, DB_NAME, "-e", "SELECT 1",
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return result.returncode == 0
+
+
+def schema_loaded(user, password):
+    result = mysql_as_app_user(user, password, "-N", "-B", DB_NAME, "-e", "SHOW TABLES LIKE 'users'",
+                               capture_output=True, text=True)
+    return result.returncode == 0 and "users" in result.stdout
+
+
+def provision_mysql_account(user, password):
+    """Create the database + MySQL user as the MySQL admin (same as `sudo mysql`)."""
+    sql = provision_sql(user, password)
+    sudo = [] if os.geteuid() == 0 else ["sudo"]
+    print("Creating the MySQL database and user (sudo may ask for your password)...", flush=True)
+    if subprocess.run(sudo + ["mysql"], input=sql, text=True).returncode == 0:
+        return
+    print("`sudo mysql` failed; trying `mysql -u root -p` (enter the MySQL root password)...", flush=True)
+    if subprocess.run(["mysql", "-u", "root", "-p"], input=sql, text=True).returncode != 0:
+        sys.exit("ERROR: could not create the MySQL user. Run the CREATE USER / GRANT commands manually.")
+
+
+def setup_database_linux():
+    """First-run MySQL bootstrap for Ubuntu: service, user, database, schema."""
+    if not IS_LINUX or local_setting("HOSTELCARE_DB_URL"):
+        return  # Windows/macOS or a custom DB URL: the database is managed by the user
+    user = local_setting("HOSTELCARE_DB_USER", "root")
+    password = local_setting("HOSTELCARE_DB_PASSWORD", "")
+    if shutil.which("mysql") is None:
+        sys.exit("ERROR: the mysql client was not found. Run: sudo apt install mysql-server")
+    ensure_mysql_running()
+    if not app_user_can_connect(user, password):
+        if user == "root":
+            sys.exit("ERROR: cannot log in to MySQL as root with the configured password.")
+        provision_mysql_account(user, password)
+        if not app_user_can_connect(user, password):
+            sys.exit(f"ERROR: still cannot log in to MySQL as '{user}'. Check HOSTELCARE_DB_USER / HOSTELCARE_DB_PASSWORD.")
+    if not schema_loaded(user, password):
+        print("Loading mysql/schema.sql (first run)...", flush=True)
+        with open(SCHEMA_SQL, "rb") as schema:
+            if mysql_as_app_user(user, password, DB_NAME, stdin=schema).returncode != 0:
+                sys.exit("ERROR: loading mysql/schema.sql failed.")
+    print(f"MySQL ready: database '{DB_NAME}', user '{user}'.", flush=True)
 
 
 def compile_backend():
@@ -117,8 +258,9 @@ def check_port_available():
     except OSError:
         sys.exit(
             f"Port {port} is already in use or unavailable.\n"
-            "Stop the older HostelCare server with Ctrl+C and run build.bat again.\n"
-            "To use another port in PowerShell: $env:HOSTELCARE_PORT = '8081'"
+            "Stop the older HostelCare server with Ctrl+C and run the launcher again.\n"
+            + ("To use another port: HOSTELCARE_PORT=8081 python3 run_all.py" if IS_LINUX else
+               "To use another port in PowerShell: $env:HOSTELCARE_PORT = '8081'")
         )
 
 
@@ -196,6 +338,12 @@ def main():
     migrate_only = "--migrate-only" in sys.argv[1:]
     if not migrate_only:
         check_port_available()
+
+    apply_linux_db_defaults()
+    if IS_LINUX:
+        print("== Checking Java and MySQL ==", flush=True)
+        ensure_java()
+        setup_database_linux()
 
     print("== Compiling backend ==", flush=True)
     compile_backend()

@@ -54,6 +54,7 @@ class LauncherTests(unittest.TestCase):
         with patch.object(launcher.signal, "signal"), patch.object(launcher.sys, "argv", ["run_all.py", "--migrate-only"]), \
                 patch.object(launcher, "check_port_available") as check_port, \
                 patch.object(launcher, "compile_backend"), patch.object(launcher, "apply_db_migrations") as migrate, \
+                patch.object(launcher, "ensure_java"), patch.object(launcher, "setup_database_linux"), \
                 patch.object(launcher, "start_backend") as start_backend, patch("builtins.print"):
             launcher.main()
             migrate.assert_called_once()
@@ -78,6 +79,33 @@ class LauncherTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "startup timed out"):
                 launcher.wait_for_backend()
             stop.assert_called_once()
+
+    def test_provision_sql_matches_manual_setup(self):
+        sql = launcher.provision_sql("hostelcare", "mmcoe")
+        self.assertIn("CREATE DATABASE IF NOT EXISTS hostelcare;", sql)
+        self.assertIn("CREATE USER IF NOT EXISTS 'hostelcare'@'localhost' IDENTIFIED BY 'mmcoe';", sql)
+        self.assertIn("ALTER USER 'hostelcare'@'localhost' IDENTIFIED BY 'mmcoe';", sql)
+        self.assertIn("GRANT ALL PRIVILEGES ON hostelcare.* TO 'hostelcare'@'localhost';", sql)
+        self.assertIn("FLUSH PRIVILEGES;", sql)
+
+    def test_sql_quote_escapes_quotes_and_backslashes(self):
+        self.assertEqual(launcher.sql_quote("a'b\\c"), "'a''b\\\\c'")
+
+    def test_linux_defaults_do_not_override_configuration(self):
+        with patch.object(launcher, "IS_LINUX", True), patch.object(launcher, "LOCAL_SETTINGS", {}), \
+                patch.dict(launcher.os.environ, {"HOSTELCARE_DB_USER": "custom"}, clear=False):
+            launcher.os.environ.pop("HOSTELCARE_DB_PASSWORD", None)
+            launcher.apply_linux_db_defaults()
+            self.assertEqual(launcher.os.environ["HOSTELCARE_DB_USER"], "custom")
+            self.assertEqual(launcher.os.environ["HOSTELCARE_DB_PASSWORD"], "mmcoe")
+            launcher.os.environ.pop("HOSTELCARE_DB_PASSWORD", None)
+
+    def test_database_setup_is_skipped_for_custom_url(self):
+        with patch.object(launcher, "IS_LINUX", True), \
+                patch.dict(launcher.os.environ, {"HOSTELCARE_DB_URL": "jdbc:mysql://db/x"}), \
+                patch.object(launcher, "ensure_mysql_running") as ensure:
+            launcher.setup_database_linux()
+            ensure.assert_not_called()
 
 
 if __name__ == "__main__":

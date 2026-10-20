@@ -227,6 +227,22 @@ Three SLA timestamps are computed at submission time (`sla_warden`, `sla_authori
 - Python 3 (for dev launcher)
 - MySQL Connector/J JAR on classpath
 
+### Quick start on Ubuntu (college PCs)
+
+```bash
+git clone https://github.com/Vishwesh-Bhilare/EDI-Hostel_Complaint_Tracker_and_Escalation_Matrix.git
+cd EDI-Hostel_Complaint_Tracker_and_Escalation_Matrix
+git checkout final_integration
+python3 run_all.py
+```
+
+On Linux `run_all.py` prepares everything on the first run: it offers to install a JDK if
+missing, starts the MySQL service, creates the `hostelcare` database and MySQL user via
+`sudo mysql` (type the sudo password when asked), loads `mysql/schema.sql`, compiles the
+backend and starts the server on http://localhost:8080. Override the default MySQL account
+with `HOSTELCARE_DB_USER` / `HOSTELCARE_DB_PASSWORD` or `.local/hostelcare.json`; set
+`HOSTELCARE_DB_URL` to skip the automatic MySQL setup.
+
 ### 1. Database
 
 ```sql
