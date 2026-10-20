@@ -1,8 +1,6 @@
-/* Shared view for the two mid-chain escalation authorities: Chief Warden
-   (level 1) and College Authority (level 2). Principal (level 3) reuses
-   renderAuthorityQueueSection()/attachAuthorityQueueHandlers() below inside
-   its own dashboard in js/principal.js, since it also owns a queue at the
-   top of the chain in addition to its org-wide monitoring view. */
+/* Shared view for the two escalation authorities: Chief Warden (level 1)
+   and College Authority (level 2). The College Authority's next hand-off is
+   to the Principal at level 3. */
 
 let _authorityTab = "queue";
 let _escalateTargetId = null;
@@ -25,8 +23,7 @@ function renderAuthorityView(role) {
   `;
 }
 
-// Reusable body: tabs + list + "handled by me" history. Used directly by
-// the two mid-chain roles, and embedded inside the Principal dashboard.
+// Reusable body: tabs + list + "handled by me" history.
 function renderAuthorityQueueSection(level) {
   const queue = complaintsAtLevel(level);
   const handled = complaintsEverAtLevel(level).filter(c => c.escalationLevel !== level || c.status === "Resolved");
@@ -70,10 +67,11 @@ function renderAuthorityQueueList(list, level) {
           <span class="small" style="color: var(--ink-soft);">Resolve by ${formatDueBy(c.resolutionDueAt)}</span>
         </div>
         <div class="mt-3 d-flex gap-2 flex-wrap">
+          ${!c.authorityAcknowledged ? `<button class="btn btn-outline-secondary btn-sm" data-acknowledge="${c.id}">Acknowledge</button>` : ""}
           <button class="btn btn-teal btn-sm" data-authority-resolve="${c.id}">Resolve</button>
-          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate further</button>` : ""}
-          ${debugEscalateButtonHtml(c.id)}
+          ${canEscalateFurther ? `<button class="btn btn-outline-danger btn-sm" data-authority-escalate="${c.id}">Escalate to ${labelForLevel(level + 1)}</button>` : ""}
         </div>
+        <div class="mt-2">${authorityResponseHtml(c)}</div>
       </div>
     `;
   }).join("");
@@ -129,11 +127,8 @@ function attachAuthorityHandlers(role) {
   attachAuthorityQueueHandlers(level);
 }
 
-// Wires up the tabs/actions for whichever container renders
-// renderAuthorityQueueSection() — shared by the standalone view and by the
-// Principal dashboard's embedded queue tab.
+// Wires up the tabs and actions for an authority queue.
 function attachAuthorityQueueHandlers(level) {
-  attachDebugEscalateHandlers();
   document.querySelectorAll("#authorityTabs [data-atab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _authorityTab = btn.getAttribute("data-atab");
@@ -168,9 +163,13 @@ function attachAuthorityQueueHandlers(level) {
         document.getElementById("authorityEscalateReason").focus();
         return;
       }
-      await escalateManually(_escalateTargetId, currentUser.id, reason);
-      escalateModal.hide();
-      render();
+      confirmBtn.disabled = true;
+      try {
+        await escalateManually(_escalateTargetId, currentUser.id, reason);
+        escalateModal.hide();
+        render();
+      } catch (err) { alert(err.message); }
+      finally { confirmBtn.disabled = false; }
     });
   }
 }

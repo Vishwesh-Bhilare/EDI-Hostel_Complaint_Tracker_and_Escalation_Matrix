@@ -51,12 +51,12 @@ function renderWardenView() {
           </div>
           <div class="modal-body">
             <p class="small" style="color: var(--ink-soft);">
-              Severity is auto-set from category at submission. Correct it here if a student's
-              category choice overstates (or understates) the real urgency — this recalculates
-              the SLA clock from now.
+              Priority uses the category default and the number of open reports in this hostel.
+              Set a manual minimum or return to automatic priority. Existing deadlines never restart.
             </p>
             <label class="form-label">New severity</label>
             <select class="form-select mb-3" id="severitySelect">
+              <option value="auto">Automatic (category + report count)</option>
               ${SEVERITY_LEVELS.map(s => `<option value="${s}">${s}</option>`).join("")}
             </select>
             <label class="form-label">Reason (optional)</label>
@@ -111,9 +111,8 @@ function renderWardenActiveList(list) {
         <button class="btn btn-outline-secondary btn-sm" data-reassign="${c.id}">Reassign</button>
       `;
     }
-    // Manual escalation is only meaningful while the complaint is still
-    // sitting with the Warden (level 0) — once it's been escalated, the
-    // authority holding it uses their own "Escalate further" action instead.
+    // A returned level-3 complaint is again in the Warden's queue, but it has
+    // completed the configured escalation loop and cannot escalate further.
     const canEscalate = c.escalationLevel === 0;
     return `
       <div class="complaint-row p-3">
@@ -134,10 +133,11 @@ function renderWardenActiveList(list) {
         </div>
         <div class="mt-2 d-flex gap-2 flex-wrap">
           ${actions}
+          ${!c.authorityAcknowledged ? `<button class="btn btn-outline-secondary btn-sm" data-acknowledge="${c.id}">Acknowledge</button>` : ""}
           <button class="btn btn-outline-secondary btn-sm" data-severity="${c.id}">Change severity</button>
-          ${canEscalate ? `<button class="btn btn-outline-danger btn-sm" data-warden-escalate="${c.id}">Escalate</button>` : ""}
-          ${debugEscalateButtonHtml(c.id)}
+          ${canEscalate ? `<button class="btn btn-outline-danger btn-sm" data-warden-escalate="${c.id}">Escalate to Chief Warden</button>` : ""}
         </div>
+        <div class="mt-2">${authorityResponseHtml(c)}</div>
       </div>
     `;
   }).join("");
@@ -162,7 +162,6 @@ function renderWardenHistoryList(list) {
 }
 
 function attachWardenHandlers() {
-  attachDebugEscalateHandlers();
   document.querySelectorAll("#wardenTabs [data-tab]").forEach(btn => {
     btn.addEventListener("click", () => {
       _wardenTab = btn.getAttribute("data-tab");
@@ -184,9 +183,13 @@ function attachWardenHandlers() {
   if (confirmBtn) {
     confirmBtn.addEventListener("click", async () => {
       const maintenanceId = document.getElementById("assignSelect").value;
-      await assignComplaint(_assignTargetId, maintenanceId, currentUser.id);
-      modal.hide();
-      render();
+      confirmBtn.disabled = true;
+      try {
+        await assignComplaint(_assignTargetId, maintenanceId, currentUser.id);
+        modal.hide();
+        render();
+      } catch (err) { alert(err.message); }
+      finally { confirmBtn.disabled = false; }
     });
   }
 
@@ -211,7 +214,7 @@ function attachWardenHandlers() {
     btn.addEventListener("click", () => {
       _severityTargetId = btn.getAttribute("data-severity");
       const c = COMPLAINTS.find(x => x.id === _severityTargetId);
-      document.getElementById("severitySelect").value = c ? c.severity : "Medium";
+      document.getElementById("severitySelect").value = c?.manualSeverity || "auto";
       document.getElementById("severityReason").value = "";
       severityModal.show();
     });
@@ -222,9 +225,13 @@ function attachWardenHandlers() {
     severityConfirm.addEventListener("click", async () => {
       const newSeverity = document.getElementById("severitySelect").value;
       const reason = document.getElementById("severityReason").value.trim();
-      await updateComplaintSeverity(_severityTargetId, newSeverity, currentUser.id, reason);
-      severityModal.hide();
-      render();
+      severityConfirm.disabled = true;
+      try {
+        await updateComplaintSeverity(_severityTargetId, newSeverity, currentUser.id, reason);
+        severityModal.hide();
+        render();
+      } catch (err) { alert(err.message); }
+      finally { severityConfirm.disabled = false; }
     });
   }
 
@@ -247,9 +254,13 @@ function attachWardenHandlers() {
         document.getElementById("wardenEscalateReason").focus();
         return;
       }
-      await escalateManually(_wardenEscalateTargetId, currentUser.id, reason);
-      wardenEscalateModal.hide();
-      render();
+      wardenEscalateConfirm.disabled = true;
+      try {
+        await escalateManually(_wardenEscalateTargetId, currentUser.id, reason);
+        wardenEscalateModal.hide();
+        render();
+      } catch (err) { alert(err.message); }
+      finally { wardenEscalateConfirm.disabled = false; }
     });
   }
 }

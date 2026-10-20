@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   role          VARCHAR(30) NOT NULL,
   email         VARCHAR(100) NOT NULL,
   subject       VARCHAR(255) NOT NULL,
-  status        ENUM('sent', 'failed', 'skipped') NOT NULL,
+  status        ENUM('queued', 'sent', 'failed', 'skipped') NOT NULL,
   sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (complaint_id) REFERENCES complaints(id)
 );

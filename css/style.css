@@ -870,6 +870,21 @@ html[data-theme="dark"] .quick-tile-icon.qt-forest {
   color: var(--ui-muted) !important;
 }
 
+.issue-group-final {
+  border-left: 4px solid var(--severity-critical);
+}
+
+.issue-group details > summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+  padding: .5rem 0;
+}
+
+.issue-group details[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
 @media (max-width: 767.98px) {
   .hct-topbar,
   .welcome-hero {

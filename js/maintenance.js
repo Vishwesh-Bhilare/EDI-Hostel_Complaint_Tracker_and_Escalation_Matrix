@@ -152,12 +152,14 @@ function maintenanceComplaintCard(c) {
       }
 
       <div class="mt-3">
+        ${c.status === "Assigned" ? `
         <button
           type="button"
           class="btn btn-teal btn-sm"
           data-mark-done="${escapeHtml(c.id)}">
           Mark done
         </button>
+        ` : `<span class="small">Work submitted; awaiting authority review.</span>`}
       </div>
 
     </div>
@@ -247,11 +249,15 @@ function attachMaintenanceHandlers() {
       return;
     }
 
-    await markDone(
-      _maintenanceTargetId,
-      currentUser.id,
-      _maintenancePhoto
-    );
+    const confirmBtn = document.getElementById("doneConfirm");
+    confirmBtn.disabled = true;
+    try {
+      await markDone(_maintenanceTargetId, currentUser.id, _maintenancePhoto);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.style.setProperty("display", "block", "important");
+      return;
+    } finally { confirmBtn.disabled = false; }
 
     modal.hide();
 
